@@ -3,6 +3,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
-  build: { outDir: 'dist', sourcemap: false },
+  // The spreadsheet library is its own chunk, loaded only on first export.
+  build: { outDir: 'dist', sourcemap: false, chunkSizeWarningLimit: 1000 },
   test: { environment: 'node', include: ['src/**/*.test.ts'] },
 });

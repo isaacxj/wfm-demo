@@ -11,9 +11,12 @@ interface TopBarProps {
   activeId: string | null;
   onActivate: (id: string | null) => void;
   onFork: () => void;
+  /** Exports the current view; absent when there is nothing to export. */
+  onExport?: () => void;
+  exporting: boolean;
 }
 
-export function TopBar({ weeks, scenarios, activeId, onActivate, onFork }: TopBarProps) {
+export function TopBar({ weeks, scenarios, activeId, onActivate, onFork, onExport, exporting }: TopBarProps) {
   const active = scenarios.find((s) => s.id === activeId) ?? null;
   const first = weeks[0]?.label ?? '';
   const last = weeks.at(-1)?.label ?? '';
@@ -166,8 +169,8 @@ export function TopBar({ weeks, scenarios, activeId, onActivate, onFork }: TopBa
 
       <div className="tb-spacer" />
 
-      <button className="tb-action" disabled title="Export to Excel">
-        <Download /> Export
+      <button className="tb-action" disabled={!onExport || exporting} onClick={onExport} title="Export this view to Excel (.xlsx)">
+        <Download /> {exporting ? 'Exporting…' : 'Export'}
       </button>
     </header>
   );

@@ -16,7 +16,7 @@ Statixx Solutions. All data in this repository is invented.
 | 3 | Calculation inspector | Done |
 | 4 | Scenario comparison | Done |
 | 5 | Hiring plan view | Done |
-| 6 | Excel export | Not started |
+| 6 | Excel export | Done |
 | 7 | Deploy | Not started |
 
 ## Commands
@@ -46,6 +46,7 @@ src/engine/   calculation engine; the UI imports src/engine/index.ts only
   calendar.ts     ISO week arithmetic
 src/app/      application shell, plan grid, row model and calculation inspector
 src/scenario/ scenarios: overrides applied to a locked plan's inputs
+src/export/   .xlsx export of plans, comparisons and the hiring plan
 src/testing/  test helpers, never imported by the app
 src/data/     seeded demo dataset, 8 sites, 4 vendors, 68 planning units, 52 weeks of 2027
 scripts/      totals.ts
@@ -128,4 +129,18 @@ the first class and the busiest start week. Needs hiring cannot meet are listed
 separately with an action: deficits inside the training lead time, and demand
 above a contracted cap. Every number is read from the plan, so the instruction
 and the grid agree, and any cell opens its site-week chain in the inspector.
+
+## Excel export
+
+Export in the top bar saves the current view as .xlsx: the plan grid for the
+selected week (with the hiring plan and the assumption register as further
+sheets), a scenario comparison (with its overrides and horizon summary), or
+the hiring plan. The workbook keeps the grid's structure: merged column-group
+bands, group header rows, site rows, subtotals and a grand total, with Excel
+outline levels so each group collapses, and the site column and headers
+frozen. Subtotals and totals are SUBTOTAL formulas over site values written at
+display precision, and comparison changes are formulas, so the workbook adds
+up exactly as the screen does and keeps doing so when edited. A comparison
+export includes every row, changed or not. The spreadsheet library (exceljs)
+loads on first export only.
 

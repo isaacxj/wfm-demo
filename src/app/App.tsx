@@ -12,9 +12,24 @@ import { ScenarioBar, type DraftOverride } from './components/ScenarioBar.tsx';
 import { StatusBar } from './components/StatusBar.tsx';
 import { Toolbar } from './components/Toolbar.tsx';
 import { TopBar } from './components/TopBar.tsx';
+import { compareWorkbook, fileName, hiringWorkbook, planWorkbook, type ExportContext } from '../export/xlsx.ts';
+import { downloadWorkbook } from '../export/download.ts';
 import { formatDelta, formatValue, type Formatted } from './format.ts';
 import { buildHiringPlan } from './hiring.ts';
-import { ALL_FILTERS, buildRows, columnSpec, isFiltered, unitPredicate, type ColumnKey, type Filters, type Grouping, type NumericKey } from './model.ts';
+import {
+  ALL_FILTERS,
+  buildRows,
+  CHANNEL_LABEL,
+  columnSpec,
+  FILTER_DIMENSIONS,
+  GROUPINGS,
+  isFiltered,
+  unitPredicate,
+  type ColumnKey,
+  type Filters,
+  type Grouping,
+  type NumericKey,
+} from './model.ts';
 import { PLAN } from './plan.ts';
 
 const dataset = demoDataset();
@@ -23,6 +38,16 @@ const basePlan = engine.computePlan(dataset.plan);
 const baseMs = performance.now() - t0;
 const labelOfWeek = (index: number) => periodLabel(dataset.plan.isoYear, index);
 const HORIZON = dataset.plan.weeks.length;
+const siteName = (id: string) => dataset.plan.sites.find((s) => s.id === id)?.name ?? id;
+const PLAN_TITLE = `${PLAN.name} ${PLAN.version}`;
+const longDate = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+
+function filtersText(filters: Filters): string {
+  if (!isFiltered(filters)) return 'all lines of business, languages and channels';
+  return FILTER_DIMENSIONS.filter((d) => filters[d.key].length < d.values.length)
+    .map((d) => `${d.label.toLowerCase()} ${filters[d.key].map((v) => (d.key === 'channel' ? (CHANNEL_LABEL[v] ?? v) : v)).join(', ')}`)
+    .join('; ');
+}
 
 const INSPECTOR_KEY = 'capacity-planner.inspector-open';
 const SCENARIOS_KEY = 'capacity-planner.scenarios';
@@ -77,6 +102,7 @@ export function App() {
   const [hiringGrouping, setHiringGrouping] = useState<HiringGrouping>('week');
   const [vendorFilter, setVendorFilter] = useState<ReadonlySet<string>>(() => new Set(dataset.vendors));
   const [hiringSel, setHiringSel] = useState<HiringRef | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => writeStored(SCENARIOS_KEY, JSON.stringify(scenarios)), [scenarios]);
 
@@ -236,6 +262,56 @@ export function App() {
     };
   }, [selected, view, compare, active, rows, hiringTarget]);
 
+  const exportView = useCallback(async () => {
+    const wk = basePlan.weeks[week - 1];
+    const ctx: ExportContext = {
+      planName: PLAN_TITLE,
+      scenarioName: active?.name ?? null,
+      context: `Week ${wk?.label ?? ''} (from ${wk ? longDate.format(new Date(`${wk.start}T00:00:00Z`)) : ''}) · grouped by ${
+        GROUPINGS.find((g) => g.id === grouping)?.label.toLowerCase() ?? 'vendor'
+      } · ${filtersText(filters)}${isFiltered(filters) ? ' · supply split by share of rostered FTE' : ''}`,
+      exportedOn: new Date().toISOString().slice(0, 10),
+    };
+    const scenarioPart = active?.name ?? 'Baseline';
+    setExporting(true);
+    try {
+      if (view === 'hiring' && hiringPlan) {
+        await downloadWorkbook(
+          (lib) => hiringWorkbook(lib, hiringPlan, { ...ctx, context: 'Hiring plan for the full horizon' }, dataset.assumptions),
+          fileName([PLAN_TITLE, scenarioPart, 'hiring-plan']),
+        );
+      } else if (view === 'scenarios' && active && scen && summary) {
+        const all = buildCompare(basePlan, scen.plan, opts, false);
+        await downloadWorkbook(
+          (lib) =>
+            compareWorkbook(lib, all, metrics, ctx, `Compare ${wk?.label ?? ''}`, {
+              scenario: active,
+              summary,
+              assumptions: dataset.assumptions,
+              siteName,
+            }),
+          fileName([PLAN_TITLE, scenarioPart, 'compare', wk?.label ?? '']),
+        );
+      } else if (view === 'plans') {
+        const hp = buildHiringPlan(shownPlan, dataset.plan.constants, dataset.plan.isoYear);
+        await downloadWorkbook(
+          (lib) =>
+            planWorkbook(lib, rows, hidden, ctx, `Plan ${wk?.label ?? ''}`, {
+              hiring: hp,
+              assumptions: dataset.assumptions,
+              scenario: active,
+              siteName,
+            }),
+          fileName([PLAN_TITLE, scenarioPart, wk?.label ?? '']),
+        );
+      }
+    } finally {
+      setExporting(false);
+    }
+  }, [week, active, grouping, filters, view, hiringPlan, scen, summary, opts, metrics, shownPlan, rows, hidden]);
+
+  const canExport = view === 'plans' || view === 'hiring' || (view === 'scenarios' && active !== null);
+
   const toolbar = (
     choices: readonly ColumnKey[] | undefined,
     hiddenSet: ReadonlySet<ColumnKey>,
@@ -370,7 +446,15 @@ export function App() {
 
   return (
     <div className={`shell ${inspectorOpen ? '' : 'inspector-collapsed'}`}>
-      <TopBar weeks={basePlan.weeks} scenarios={scenarios} activeId={activeId} onActivate={activate} onFork={fork} />
+      <TopBar
+        weeks={basePlan.weeks}
+        scenarios={scenarios}
+        activeId={activeId}
+        onActivate={activate}
+        onFork={fork}
+        onExport={canExport ? () => void exportView() : undefined}
+        exporting={exporting}
+      />
       <Rail view={view} onView={changeView} locked={!active} sites={dataset.plan.sites.length} units={dataset.units.length} />
       <main className="main">{main}</main>
       <Inspector open={inspectorOpen} onToggle={toggleInspector} target={target} weekLabel={weekLabel} labelOfWeek={labelOfWeek} />
