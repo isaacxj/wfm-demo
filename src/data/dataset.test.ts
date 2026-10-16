@@ -14,7 +14,7 @@ describe('demo dataset', () => {
   });
 
   it('is pinned, so a screenshot today matches next month', () => {
-    expect(fnv1a(JSON.stringify(ds.plan)).toString(16).padStart(8, '0')).toBe('56b96b7e');
+    expect(fnv1a(JSON.stringify(ds.plan)).toString(16).padStart(8, '0')).toBe('edec1048');
   });
 
   it('has eight sites across four vendors, as tabled in the brief', () => {
@@ -49,9 +49,12 @@ describe('demo dataset', () => {
     }
   });
 
-  it('lands round(opening HC × 0.03) hires in production each week', () => {
+  it('commits round(opening HC × 0.03) hires a week for the lead time, then none', () => {
+    const lead = ds.plan.constants.trainingWeeks + ds.plan.constants.nestingWeeks;
     for (const s of ds.plan.sites) {
-      expect(new Set(s.hiresProductive)).toEqual(new Set([Math.round(s.openingHeadcount * WEEKLY_HIRE_RATE)]));
+      const hires = Math.round(s.openingHeadcount * WEEKLY_HIRE_RATE);
+      expect(s.committedHires.slice(0, lead)).toEqual(Array<number>(lead).fill(hires));
+      expect(s.committedHires.slice(lead).every((h) => h === 0)).toBe(true);
     }
   });
 
@@ -93,9 +96,9 @@ describe('plan on the demo dataset', () => {
     const mnl1 = plan.sites.find((s) => s.site.id === 'MNL1')!;
     const breached = mnl1.periods.filter((p) => p.rosteredFte > (mnl1.site.cap ?? Infinity));
     expect(breached.length).toBeGreaterThan(0);
-    expect(breached.every((p) => p.hiring.capShortfall > 0)).toBe(true);
-    expect(mnl1.periods.some((p) => p.supply.atCap)).toBe(true);
-    expect(mnl1.periods.every((p) => p.supply.closing <= 980 + 1e-9)).toBe(true);
+    expect(breached.every((p) => p.flow.capShortfall > 0)).toBe(true);
+    expect(mnl1.periods.some((p) => p.flow.atCap)).toBe(true);
+    expect(mnl1.periods.every((p) => p.flow.closing <= 980 + 1e-9)).toBe(true);
   });
 
   it('site requirement reconciles to its planning units', () => {
@@ -110,25 +113,77 @@ describe('plan on the demo dataset', () => {
 
   it('headcount rolls forward week to week from the opening table', () => {
     for (const sp of plan.sites) {
-      expect(sp.periods[0]!.supply.opening).toBe(sp.site.openingHeadcount);
+      expect(sp.periods[0]!.flow.opening).toBe(sp.site.openingHeadcount);
       for (let w = 1; w < sp.periods.length; w++) {
-        expect(sp.periods[w]!.supply.opening).toBe(sp.periods[w - 1]!.supply.closing);
+        expect(sp.periods[w]!.flow.opening).toBe(sp.periods[w - 1]!.flow.closing);
       }
     }
   });
 
   it('supply has shape by week 12', () => {
     for (const sp of plan.sites) {
-      expect(sp.periods[11]!.supply.opening).not.toBe(sp.site.openingHeadcount);
+      expect(sp.periods[11]!.flow.opening).not.toBe(sp.site.openingHeadcount);
     }
   });
 
-  it('every site trace ends on the class start week and reproduces the grid values', () => {
+  it('every site trace ends on the gap and reproduces the grid values', () => {
     const p = plan.sites[0]!.periods[11]!;
     const step = (k: string) => p.trace.find((s) => s.key === k)?.value;
     expect(step('rostered')).toBe(p.rosteredFte);
-    expect(step('supply.closing')).toBe(p.supply.closing);
-    expect(step('hiring.gap')).toBe(p.hiring.gap);
-    expect(p.trace.at(-1)?.key).toBe('hiring.startPeriod');
+    expect(step('flow.closing')).toBe(p.flow.closing);
+    expect(step('flow.gap')).toBe(p.flow.gap);
+    expect(p.trace.at(-1)?.key).toBe('flow.gap');
+  });
+
+  it('hires for a deficit once: after a class lands, only cap shortfall remains', () => {
+    for (const sp of plan.sites) {
+      for (const p of sp.periods) {
+        if (!p.flow.classPossible) continue;
+        expect(p.flow.gap, `${sp.site.id} ${p.weekLabel}`).toBeLessThanOrEqual(p.flow.capShortfall + 1e-9);
+      }
+    }
+  });
+
+  it('starts no class inside the lead time', () => {
+    for (const sp of plan.sites) {
+      for (const p of sp.periods.slice(0, 6)) {
+        expect(p.flow.classPossible).toBe(false);
+        expect(p.flow.hiresToStart).toBe(0);
+      }
+      expect(sp.periods[6]!.flow.classPossible).toBe(true);
+    }
+  });
+
+  it('recommends classes for the spike and the year-end lift', () => {
+    const starters = (weeks: number[]) =>
+      sum(plan.sites.flatMap((sp) => weeks.map((w) => sp.periods[w - 1]!.flow.hiresToStart)));
+    expect(starters([31, 32])).toBeGreaterThan(50);
+    expect(starters([47, 48, 49, 50, 51, 52])).toBeGreaterThan(100);
+  });
+});
+
+describe('filtered slices', () => {
+  const p = plan.sites.find((s) => s.site.id === 'MEX')!.periods[11]!;
+
+  it('an unfiltered slice is the site row itself', () => {
+    const s = engine.sliceSitePeriod(p, () => true)!;
+    expect(s.allocated).toBe(false);
+    expect(s.trace).toBe(p.trace);
+    expect(s.closing).toBe(p.flow.closing);
+  });
+
+  it('complementary slices add back to the site', () => {
+    const voice = engine.sliceSitePeriod(p, (u) => u.channel === 'voice')!;
+    const other = engine.sliceSitePeriod(p, (u) => u.channel !== 'voice')!;
+    expect(voice.allocated && other.allocated).toBe(true);
+    expect(voice.volume + other.volume).toBe(p.volume);
+    expect(voice.rosteredFte + other.rosteredFte).toBeCloseTo(p.rosteredFte, 9);
+    expect(voice.closing + other.closing).toBeCloseTo(p.flow.closing, 9);
+    expect(voice.gap + other.gap).toBeCloseTo(p.flow.gap, 9);
+    expect(voice.share + other.share).toBeCloseTo(1, 12);
+  });
+
+  it('a filter matching nothing at a site returns no slice', () => {
+    expect(engine.sliceSitePeriod(p, (u) => u.language === 'TL')).toBeNull();
   });
 });

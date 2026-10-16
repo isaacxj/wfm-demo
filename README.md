@@ -36,8 +36,10 @@ npm run totals     # prints dataset totals and the week 12 snapshot
 src/engine/   calculation engine; the UI imports src/engine/index.ts only
   requirement.ts  period requirement, channel handling
   erlang.ts       interval staffing, Erlang C with occupancy ceiling
-  supply.ts       attrition, roll-forward, cap, hiring need
+  supply.ts       attrition, roll-forward and hiring primitives
+  siteweek.ts     site-week roll-forward with the recommended class fed back
   plan.ts         unit → site → week plan computation
+  slice.ts        filtered slice of a site-week, supply allocated by share
   trace.ts        calculation trace with Excel equivalents
   calendar.ts     ISO week arithmetic
 src/data/     seeded demo dataset, 8 sites, 4 vendors, 68 planning units, 52 weeks of 2027
@@ -53,7 +55,9 @@ A textbook capacity model behind the `CapacityEngine` interface in
 - Chat: effective AHT = AHT ÷ (concurrency × efficiency). Deferred work applies no occupancy ceiling
 - Interval: Erlang C, always floored at ceil(traffic ÷ occupancy ceiling)
 - Supply: weekly attrition = 1 − (1 − monthly)^(1 ÷ 4.33); a contracted cap limits productive hires and surfaces demand above it as a cap shortfall
-- Hiring: starters = ceil(gap ÷ (1 − training attrition)), starting training + nesting weeks before the need
+- Hiring: starters = ceil(deficit ÷ (1 − training attrition)), starting training + nesting weeks before the need. The recommended class lands in supply, so a persisting deficit is hired for once
+- Committed pipeline: classes already in training at plan start land in weeks 1 to 6; inside that lead time no new class can land, and any deficit remains as a lead-time shortfall
+- Filters: demand sums over the matching planning units; site supply is allocated to the slice by its share of rostered FTE
 
 Every result carries an ordered trace: label, value, unit, formula, the
 assumption record code of each input, and an Excel formula that reproduces the

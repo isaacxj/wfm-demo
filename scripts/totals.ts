@@ -59,13 +59,13 @@ function annual(sp: SitePlan): Annual {
     avgRostered: sum(p.map((x) => x.rosteredFte)) / p.length,
     peakRostered: peak.rosteredFte,
     peakWeek: peak.weekLabel,
-    openingHc: p[0]?.supply.opening ?? 0,
-    closingHc: p.at(-1)?.supply.closing ?? 0,
-    attrition: sum(p.map((x) => x.supply.attrition)),
-    hires: sum(p.map((x) => x.supply.hiresProductive)),
-    weeksAtCap: p.filter((x) => x.supply.atCap).length,
-    weeksOverCap: p.filter((x) => x.hiring.capShortfall > 0).length,
-    hireNeed: sum(p.map((x) => x.hiring.hiresToStart)),
+    openingHc: p[0]?.flow.opening ?? 0,
+    closingHc: p.at(-1)?.flow.closing ?? 0,
+    attrition: sum(p.map((x) => x.flow.attrition)),
+    hires: sum(p.map((x) => x.flow.hiresProductive)),
+    weeksAtCap: p.filter((x) => x.flow.atCap).length,
+    weeksOverCap: p.filter((x) => x.flow.capShortfall > 0).length,
+    hireNeed: sum(p.map((x) => x.flow.hiresToStart)),
   };
 }
 
@@ -141,12 +141,12 @@ const snapTotal = (label: string, list: readonly SitePlan[]): string[] => {
     '–',
     one(sum(ps.map((p) => p.requiredFte))),
     one(sum(ps.map((p) => p.rosteredFte))),
-    int(sum(ps.map((p) => p.supply.opening))),
-    one(sum(ps.map((p) => p.supply.attrition))),
-    int(sum(ps.map((p) => p.supply.hiresProductive))),
-    int(sum(ps.map((p) => p.supply.closing))),
-    signed(sum(ps.map((p) => p.hiring.gap))),
-    int(sum(ps.map((p) => p.hiring.hiresToStart))),
+    int(sum(ps.map((p) => p.flow.opening))),
+    one(sum(ps.map((p) => p.flow.attrition))),
+    int(sum(ps.map((p) => p.flow.hiresProductive))),
+    int(sum(ps.map((p) => p.flow.closing))),
+    signed(sum(ps.map((p) => p.flow.gap))),
+    int(sum(ps.map((p) => p.flow.hiresToStart))),
     '–',
   ];
 };
@@ -156,7 +156,7 @@ for (const vendor of ds.vendors) {
   for (const s of sites) {
     const p = s.periods[SNAPSHOT_WEEK - 1]!;
     snapRows.push([
-      `  ${s.site.name}${p.supply.atCap ? ' CAP' : ''}`,
+      `  ${s.site.name}${p.flow.atCap ? ' CAP' : ''}`,
       int(p.volume),
       int(p.aht),
       one(p.workloadHours),
@@ -164,13 +164,13 @@ for (const vendor of ds.vendors) {
       pct(p.shrinkage),
       one(p.requiredFte),
       one(p.rosteredFte),
-      int(p.supply.opening),
-      one(p.supply.attrition),
-      int(p.supply.hiresProductive),
-      int(p.supply.closing),
-      signed(p.hiring.gap),
-      int(p.hiring.hiresToStart),
-      p.hiring.hiresToStart > 0 ? p.classStartLabel : '–',
+      int(p.flow.opening),
+      one(p.flow.attrition),
+      int(p.flow.hiresProductive),
+      int(p.flow.closing),
+      signed(p.flow.gap),
+      int(p.flow.hiresToStart),
+      p.classStartLabel ?? '–',
     ]);
   }
   snapRows.push(snapTotal(`  Subtotal ${vendor}`, sites));
@@ -186,12 +186,12 @@ console.log();
 
 const mnl1 = plan.sites.find((s) => s.site.id === 'MNL1');
 if (mnl1) {
-  const over = mnl1.periods.filter((p) => p.hiring.capShortfall > 0);
-  const worst = over.reduce((a, b) => (b.hiring.capShortfall > a.hiring.capShortfall ? b : a), over[0]!);
+  const over = mnl1.periods.filter((p) => p.flow.capShortfall > 0);
+  const worst = over.reduce((a, b) => (b.flow.capShortfall > a.flow.capShortfall ? b : a), over[0]!);
   console.log(
     `Manila-1 cap ${mnl1.site.cap}: requirement exceeds cap in ${over.length} weeks ` +
       `(${over.map((p) => p.weekLabel.slice(5)).join(' ')}); ` +
-      (worst ? `worst ${worst.weekLabel}, rostered ${one(worst.rosteredFte)}, shortfall ${one(worst.hiring.capShortfall)}` : ''),
+      (worst ? `worst ${worst.weekLabel}, rostered ${one(worst.rosteredFte)}, shortfall ${one(worst.flow.capShortfall)}` : ''),
   );
 }
 

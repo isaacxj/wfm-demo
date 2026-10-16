@@ -12,7 +12,11 @@ export const SEED = 20270104;
 export const ISO_YEAR = 2027;
 export const HORIZON_WEEKS = 52;
 
-/** Share of opening headcount reaching production each week. */
+/**
+ * Share of opening headcount reaching production each week from classes
+ * already in training at plan start. Those classes cover the first
+ * training + nesting weeks; after that, classes are the engine's.
+ */
 export const WEEKLY_HIRE_RATE = 0.03;
 
 export const LINES_OF_BUSINESS = ['Mobile', 'Internet', 'Cable'] as const;
@@ -143,11 +147,12 @@ export function buildDataset(seed = SEED): Dataset {
     start: toIsoDate(periodStart(ISO_YEAR, i + 1)),
   }));
 
+  const committedWeeks = CONSTANTS.trainingWeeks + CONSTANTS.nestingWeeks;
   const sites: SiteInput[] = SITE_TABLE.map((row) => {
     const hires = Math.round(row.openingHeadcount * WEEKLY_HIRE_RATE);
     return {
       ...row,
-      hiresProductive: weeks.map(() => hires),
+      committedHires: weeks.map((wk) => (wk.index <= committedWeeks ? hires : 0)),
       codes: {
         workWeekHours: `${row.id}.WWK`,
         occupancyCeiling: `${row.id}.OCC`,
@@ -155,7 +160,7 @@ export function buildDataset(seed = SEED): Dataset {
         monthlyAttrition: `${row.id}.ATT`,
         cap: `${row.id}.CAP`,
         openingHeadcount: `${row.id}.HC0`,
-        hiresProductive: `${row.id}.HIR`,
+        committedHires: `${row.id}.HIR`,
       },
     };
   });
@@ -242,7 +247,7 @@ function assumptionRegister(sites: readonly SiteInput[]): AssumptionRecord[] {
       { code: s.codes.monthlyAttrition, label: 'Monthly attrition', value: s.monthlyAttrition, unit: 'ratio', scope },
       { code: s.codes.cap, label: 'Contracted HC cap', value: s.cap, unit: 'heads', scope },
       { code: s.codes.openingHeadcount, label: 'Opening headcount, week 1', value: s.openingHeadcount, unit: 'heads', scope },
-      { code: s.codes.hiresProductive, label: 'Hires reaching production per week', value: s.hiresProductive[0] ?? 0, unit: 'heads', scope },
+      { code: s.codes.committedHires, label: 'Committed hires per week, weeks 1 to 6', value: s.committedHires[0] ?? 0, unit: 'heads', scope },
     );
     const conc = COVERAGE[s.id]?.concurrency;
     if (conc !== undefined && COVERAGE[s.id]?.channels.includes('chat')) {

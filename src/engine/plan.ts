@@ -1,12 +1,13 @@
 /**
  * Plan computation: demand requirement per planning unit per week, rolled up
- * to site, then supply roll-forward and the hiring need per site per week.
+ * to site, then per site and week the supply roll-forward with the
+ * recommended class fed back in.
  *
  * A scenario is a modified PlanInput. The engine holds no state.
  */
 import { periodLabel } from './calendar.ts';
 import { periodRequirement, type Channel, type RequirementResult } from './requirement.ts';
-import { hiringNeed, rollForward, type HiringResult, type RollForwardResult } from './supply.ts';
+import { siteWeek, type SiteWeekResult } from './siteweek.ts';
 import { TraceBuilder, group, type TraceStep } from './trace.ts';
 
 export interface PlanWeek {
@@ -43,8 +44,11 @@ export interface SiteInput {
   /** Contracted headcount cap, or null. */
   cap: number | null;
   openingHeadcount: number;
-  /** Planned hires reaching production, one entry per horizon week. */
-  hiresProductive: readonly number[];
+  /**
+   * Hires from classes already in training at plan start, reaching
+   * production, one entry per horizon week. New classes are the engine's.
+   */
+  committedHires: readonly number[];
   transfersIn?: readonly number[];
   transfersOut?: readonly number[];
   codes: {
@@ -54,7 +58,7 @@ export interface SiteInput {
     monthlyAttrition: string;
     cap: string;
     openingHeadcount: string;
-    hiresProductive: string;
+    committedHires: string;
   };
 }
 
@@ -110,9 +114,10 @@ export interface SitePeriod {
   shrinkage: number;
   requiredFte: number;
   rosteredFte: number;
-  supply: RollForwardResult;
-  hiring: HiringResult;
-  classStartLabel: string;
+  /** Supply roll-forward with the recommended class, and the residual gap. */
+  flow: SiteWeekResult;
+  /** ISO week the recommended class starts, or null when none is needed. */
+  classStartLabel: string | null;
   units: UnitPeriod[];
   /** Demand roll-up, then supply, then hiring. */
   trace: TraceStep[];
@@ -138,7 +143,7 @@ export function computePlan(input: PlanInput): PlanResult {
   }
 
   const sites = input.sites.map((site): SitePlan => {
-    expectLength(`${site.id} hiresProductive`, site.hiresProductive, weeks.length);
+    expectLength(`${site.id} committedHires`, site.committedHires, weeks.length);
     const units = unitsBySite.get(site.id) ?? [];
     const periods: SitePeriod[] = [];
     let opening = site.openingHeadcount;
@@ -172,88 +177,82 @@ export function computePlan(input: PlanInput): PlanResult {
       });
 
       const t = new TraceBuilder();
-      const volume = sumStep(t, 'volume', 'Volume', 'contacts', unitPeriods, (u) => u.volume, (u) => String(u.volume));
-      const handled = unitPeriods.reduce((s, u) => s + u.volume * u.aht, 0);
-      const aht = volume.value === 0 ? 0 : handled / volume.value;
-      t.calc(
-        'aht',
-        'AHT (volume weighted)',
-        aht,
-        'seconds',
-        'Σ(volume × AHT) ÷ Σ volume',
-        volume.value === 0
-          ? '0'
-          : `(${unitPeriods.map((u) => `${u.volume}*${u.aht}`).join('+') || '0'})/${group(volume.expr)}`,
-      );
-      const workload = sumStep(t, 'workload', 'Workload', 'hours', unitPeriods, (u) => u.requirement.workloadHours, (u) =>
-        excelOf(u.requirement, 'workload'),
-      );
-      const required = sumStep(t, 'required', 'Required FTE', 'FTE', unitPeriods, (u) => u.requirement.requiredFte, (u) =>
-        excelOf(u.requirement, 'required'),
-      );
-      const rostered = sumStep(t, 'rostered', 'Rostered FTE', 'FTE', unitPeriods, (u) => u.requirement.rosteredFte, (u) =>
-        excelOf(u.requirement, 'rostered'),
-      );
+      const { volume, aht, workload, required, rostered } = rollUpDemand(t, unitPeriods);
 
-      const supply = rollForward({
+      const flow = siteWeek({
         opening,
         monthlyAttrition: site.monthlyAttrition,
         periodsPerMonth: constants.periodsPerMonth,
-        hiresProductive: site.hiresProductive[w] ?? 0,
+        committedHires: site.committedHires[w] ?? 0,
         transfersIn: site.transfersIn?.[w] ?? 0,
         transfersOut: site.transfersOut?.[w] ?? 0,
         cap: site.cap,
+        rosteredRequired: rostered.value,
+        week: week.index,
+        firstStartWeek: weeks[0]?.index ?? 1,
+        trainingAttrition: constants.trainingAttrition,
+        trainingWeeks: constants.trainingWeeks,
+        nestingWeeks: constants.nestingWeeks,
         codes: {
           opening: w === 0 ? site.codes.openingHeadcount : undefined,
           monthlyAttrition: site.codes.monthlyAttrition,
           periodsPerMonth: constants.codes.periodsPerMonth,
-          hiresProductive: site.codes.hiresProductive,
+          committedHires: site.codes.committedHires,
           cap: site.codes.cap,
-        },
-      });
-      t.include('supply', supply.trace);
-
-      const hiring = hiringNeed({
-        rosteredRequired: rostered.value,
-        closing: supply.closing,
-        neededPeriod: week.index,
-        trainingAttrition: constants.trainingAttrition,
-        trainingWeeks: constants.trainingWeeks,
-        nestingWeeks: constants.nestingWeeks,
-        cap: site.cap,
-        codes: {
           trainingAttrition: constants.codes.trainingAttrition,
           trainingWeeks: constants.codes.trainingWeeks,
           nestingWeeks: constants.codes.nestingWeeks,
-          cap: site.codes.cap,
         },
       });
-      t.include('hiring', hiring.trace);
+      t.include('flow', flow.trace);
 
       periods.push({
         siteId: site.id,
         week: week.index,
         weekLabel: week.label,
         volume: volume.value,
-        aht,
+        aht: aht.value,
         workloadHours: workload.value,
         occupancyCeiling: site.occupancyCeiling,
         shrinkage: site.shrinkage,
         requiredFte: required.value,
         rosteredFte: rostered.value,
-        supply,
-        hiring,
-        classStartLabel: periodLabel(input.isoYear, hiring.startPeriod),
+        flow,
+        classStartLabel: flow.hiresToStart > 0 ? periodLabel(input.isoYear, flow.startPeriod) : null,
         units: unitPeriods,
         trace: t.steps,
       });
-      opening = supply.closing;
+      opening = flow.closing;
     });
 
     return { site, periods };
   });
 
   return { weeks, sites };
+}
+
+/** Sums unit requirements into a trace. Shared by site rows and filtered slices. */
+export function rollUpDemand(t: TraceBuilder, unitPeriods: readonly UnitPeriod[]) {
+  const volume = sumStep(t, 'volume', 'Volume', 'contacts', unitPeriods, (u) => u.volume, (u) => String(u.volume));
+  const handled = unitPeriods.reduce((s, u) => s + u.volume * u.aht, 0);
+  const aht = t.calc(
+    'aht',
+    'AHT (volume weighted)',
+    volume.value === 0 ? 0 : handled / volume.value,
+    'seconds',
+    'Σ(volume × AHT) ÷ Σ volume',
+    volume.value === 0 ? '0' : `(${unitPeriods.map((u) => `${u.volume}*${u.aht}`).join('+')})/${group(volume.expr)}`,
+  );
+  const workload = sumStep(t, 'workload', 'Workload', 'hours', unitPeriods, (u) => u.requirement.workloadHours, (u) =>
+    excelOf(u.requirement, 'workload'),
+  );
+  const required = sumStep(t, 'required', 'Required FTE', 'FTE', unitPeriods, (u) => u.requirement.requiredFte, (u) =>
+    excelOf(u.requirement, 'required'),
+  );
+  const rostered = sumStep(t, 'rostered', 'Rostered FTE', 'FTE', unitPeriods, (u) => u.requirement.rosteredFte, (u) =>
+    excelOf(u.requirement, 'rostered'),
+  );
+  return { volume, aht, workload, required, rostered };
 }
 
 function sumStep(
