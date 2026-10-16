@@ -20,6 +20,8 @@ export interface InspectorTarget {
   /** Which side of a comparison, e.g. "Baseline", "Scenario 1", "Change". */
   side?: string;
   isInput: boolean;
+  /** Week the cell belongs to, when it is not the grid's selected week. */
+  weekLabel?: string;
 }
 
 /** Target for a cell of a single-plan grid. */
@@ -71,7 +73,12 @@ export function Inspector({ open, onToggle, target, weekLabel, labelOfWeek }: In
         </button>
       </div>
       {target ? (
-        <CellDetail key={`${target.id}:${weekLabel}`} target={target} weekLabel={weekLabel} labelOfWeek={labelOfWeek} />
+        <CellDetail
+          key={`${target.id}:${target.weekLabel ?? weekLabel}`}
+          target={target}
+          weekLabel={target.weekLabel ?? weekLabel}
+          labelOfWeek={labelOfWeek}
+        />
       ) : (
         <div className="panel-body">
           <div className="panel-empty">

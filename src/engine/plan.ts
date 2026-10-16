@@ -24,11 +24,14 @@ export interface PlanConstants {
   trainingWeeks: number;
   nestingWeeks: number;
   trainingAttrition: number;
+  /** Smallest class worth running. */
+  minClassSize: number;
   codes: {
     periodsPerMonth: string;
     trainingWeeks: string;
     nestingWeeks: string;
     trainingAttrition: string;
+    minClassSize: string;
   };
 }
 
@@ -191,6 +194,7 @@ export function computePlan(input: PlanInput): PlanResult {
         week: week.index,
         firstStartWeek: weeks[0]?.index ?? 1,
         trainingAttrition: constants.trainingAttrition,
+        minClassSize: constants.minClassSize,
         trainingWeeks: constants.trainingWeeks,
         nestingWeeks: constants.nestingWeeks,
         codes: {
@@ -200,6 +204,7 @@ export function computePlan(input: PlanInput): PlanResult {
           committedHires: site.codes.committedHires,
           cap: site.codes.cap,
           trainingAttrition: constants.codes.trainingAttrition,
+          minClassSize: constants.codes.minClassSize,
           trainingWeeks: constants.codes.trainingWeeks,
           nestingWeeks: constants.codes.nestingWeeks,
         },

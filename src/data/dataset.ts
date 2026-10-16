@@ -106,16 +106,21 @@ const BASE_AHT: Readonly<Record<Channel, Readonly<Record<LineOfBusiness, number>
 const LOB_CODE: Readonly<Record<LineOfBusiness, string>> = { Mobile: 'MOB', Internet: 'INT', Cable: 'CAB' };
 const CHANNEL_CODE: Readonly<Record<Channel, string>> = { voice: 'VO', chat: 'CH', deferred: 'DF' };
 
+/** Smallest class a vendor runs. Smaller needs round up to it. */
+export const MIN_CLASS_SIZE = 8;
+
 export const CONSTANTS: PlanConstants = {
   periodsPerMonth: WEEKS_PER_MONTH,
   trainingWeeks: 4,
   nestingWeeks: 2,
   trainingAttrition: 0.15,
+  minClassSize: MIN_CLASS_SIZE,
   codes: {
     periodsPerMonth: 'GLB.PPM',
     trainingWeeks: 'GLB.TRW',
     nestingWeeks: 'GLB.NSW',
     trainingAttrition: 'GLB.TRA',
+    minClassSize: 'GLB.MCS',
   },
 };
 
@@ -234,6 +239,7 @@ function assumptionRegister(sites: readonly SiteInput[]): AssumptionRecord[] {
     { code: 'GLB.TRW', label: 'Training duration', value: CONSTANTS.trainingWeeks, unit: 'weeks', scope: 'Global' },
     { code: 'GLB.NSW', label: 'Nesting duration', value: CONSTANTS.nestingWeeks, unit: 'weeks', scope: 'Global' },
     { code: 'GLB.TRA', label: 'Training attrition', value: CONSTANTS.trainingAttrition, unit: 'ratio', scope: 'Global' },
+    { code: 'GLB.MCS', label: 'Minimum class size', value: CONSTANTS.minClassSize, unit: 'heads', scope: 'Global' },
   ];
   for (const c of [2, 3, 4]) {
     records.push({ code: `GLB.CEF${c}`, label: `Chat efficiency at concurrency ${c}`, value: DEFAULT_CHAT_EFFICIENCY[c] ?? null, unit: 'ratio', scope: 'Global' });

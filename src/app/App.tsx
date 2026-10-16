@@ -4,6 +4,7 @@ import { engine, periodLabel, type PlanResult } from '../engine/index.ts';
 import { applyScenario, type Scenario } from '../scenario/scenario.ts';
 import { buildCompare, COMPARE_METRICS, DEFAULT_COMPARE_HIDDEN, deltaOf, deltaTrace, horizonSummary } from './compare.ts';
 import { CompareGrid, type CompareRef } from './components/CompareGrid.tsx';
+import { HiringView, type HiringGrouping, type HiringKey, type HiringRef } from './components/HiringView.tsx';
 import { Grid, type CellRef } from './components/Grid.tsx';
 import { Inspector, planTarget, type InspectorTarget } from './components/Inspector.tsx';
 import { Rail, type View } from './components/Rail.tsx';
@@ -11,7 +12,8 @@ import { ScenarioBar, type DraftOverride } from './components/ScenarioBar.tsx';
 import { StatusBar } from './components/StatusBar.tsx';
 import { Toolbar } from './components/Toolbar.tsx';
 import { TopBar } from './components/TopBar.tsx';
-import { formatDelta } from './format.ts';
+import { formatDelta, formatValue, type Formatted } from './format.ts';
+import { buildHiringPlan } from './hiring.ts';
 import { ALL_FILTERS, buildRows, columnSpec, isFiltered, unitPredicate, type ColumnKey, type Filters, type Grouping, type NumericKey } from './model.ts';
 import { PLAN } from './plan.ts';
 
@@ -49,6 +51,17 @@ function parseScenarios(raw: string): Scenario[] {
 
 type AnyRef = (CellRef & { side?: undefined }) | CompareRef;
 
+/** Step in a site-week trace behind each hiring plan column. */
+const HIRING_FOCUS: Readonly<Record<HiringKey, string>> = {
+  starters: 'flow.hiresToStart',
+  graduates: 'flow.classGraduates',
+  deficit: 'flow.hireable',
+  start: 'flow.startPeriod',
+  training: 'flow.startPeriod',
+  nesting: 'flow.startPeriod',
+  productive: 'flow.startPeriod',
+};
+
 export function App() {
   const [view, setView] = useState<View>('plans');
   const [week, setWeek] = useState<number>(PLAN.landingWeek);
@@ -61,6 +74,9 @@ export function App() {
   const [inspectorOpen, setInspectorOpen] = useState<boolean>(() => readStored(INSPECTOR_KEY, true, (r) => r !== 'false'));
   const [scenarios, setScenarios] = useState<Scenario[]>(() => readStored(SCENARIOS_KEY, [], parseScenarios));
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [hiringGrouping, setHiringGrouping] = useState<HiringGrouping>('week');
+  const [vendorFilter, setVendorFilter] = useState<ReadonlySet<string>>(() => new Set(dataset.vendors));
+  const [hiringSel, setHiringSel] = useState<HiringRef | null>(null);
 
   useEffect(() => writeStored(SCENARIOS_KEY, JSON.stringify(scenarios)), [scenarios]);
 
@@ -78,7 +94,10 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) setSelected(null);
+      if (e.key === 'Escape' && !e.defaultPrevented) {
+        setSelected(null);
+        setHiringSel(null);
+      }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -132,6 +151,12 @@ export function App() {
   const changeView = useCallback((v: View) => {
     setView(v);
     setSelected(null);
+    setHiringSel(null);
+  }, []);
+
+  const selectClass = useCallback((ref: HiringRef | null) => {
+    setHiringSel(ref);
+    if (ref) setInspectorOpen(true);
   }, []);
 
   // Computation -------------------------------------------------------------------
@@ -153,10 +178,43 @@ export function App() {
   const summary = useMemo(() => (scen ? horizonSummary(basePlan, scen.plan) : null), [scen]);
   const metrics = useMemo(() => COMPARE_METRICS.filter((k) => !compareHidden.has(k)), [compareHidden]);
 
+  const hiringPlan = useMemo(
+    () => (view === 'hiring' ? buildHiringPlan(shownPlan, dataset.plan.constants, dataset.plan.isoYear, vendorFilter) : null),
+    [view, shownPlan, vendorFilter],
+  );
+
   const unitCount = useMemo(() => dataset.units.filter(unitPredicate(filters)).length, [filters]);
   const weekLabel = basePlan.weeks[week - 1]?.label ?? '';
 
+  const hiringTarget = useMemo<InspectorTarget | null>(() => {
+    if (view !== 'hiring' || !hiringSel || !hiringPlan) return null;
+    const c = hiringPlan.classes.find((x) => x.id === hiringSel.classId);
+    if (!c) return null;
+    const period = shownPlan.sites.find((sp) => sp.site.id === c.siteId)?.periods[c.productiveWeek - 1];
+    const siteRows = buildRows(shownPlan, { week: c.productiveWeek, filters: ALL_FILTERS, grouping: 'none' });
+    const row = siteRows.find((r) => r.siteId === c.siteId);
+    if (!period || !row) return null;
+    const focus = hiringSel.key === 'deficit' && !period.trace.some((x) => x.key === 'flow.hireable') ? 'flow.deficit' : HIRING_FOCUS[hiringSel.key];
+    const value = period.trace.find((x) => x.key === focus)?.value ?? null;
+    const shown: Formatted =
+      focus === 'flow.startPeriod'
+        ? { text: labelOfWeek(c.startWeek), tone: undefined }
+        : formatValue(value, hiringSel.key === 'starters' ? 'int' : 'one');
+    return {
+      id: `${c.id}:${hiringSel.key}`,
+      row,
+      members: [],
+      key: 'hireNeed',
+      trace: { steps: period.trace, focus },
+      shown,
+      side: `Class ${c.startLabel.slice(5)}`,
+      isInput: false,
+      weekLabel: c.productiveLabel,
+    };
+  }, [view, hiringSel, hiringPlan, shownPlan]);
+
   const target = useMemo<InspectorTarget | null>(() => {
+    if (view === 'hiring') return hiringTarget;
     if (!selected) return null;
     if (view === 'plans' || !compare || !active) return planTarget(rows, selected.side ? null : selected);
     const ref = selected as CompareRef;
@@ -176,7 +234,7 @@ export function App() {
       shown: formatDelta(deltaOf(row, key), spec.format ?? 'one', key === 'gap'),
       isInput: false,
     };
-  }, [selected, view, compare, active, rows]);
+  }, [selected, view, compare, active, rows, hiringTarget]);
 
   const toolbar = (
     choices: readonly ColumnKey[] | undefined,
@@ -201,7 +259,22 @@ export function App() {
   );
 
   let main: ReactNode;
-  if (view === 'plans') {
+  if (view === 'hiring' && hiringPlan) {
+    main = (
+      <HiringView
+        hp={hiringPlan}
+        scenarioName={active?.name ?? null}
+        trainingAttrition={dataset.plan.constants.trainingAttrition}
+        vendors={dataset.vendors}
+        vendorFilter={vendorFilter}
+        onVendorFilter={setVendorFilter}
+        grouping={hiringGrouping}
+        onGrouping={setHiringGrouping}
+        selected={hiringSel}
+        onSelect={selectClass}
+      />
+    );
+  } else if (view === 'plans') {
     main = (
       <>
         {toolbar(undefined, hidden, setHidden)}

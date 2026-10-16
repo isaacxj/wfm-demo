@@ -14,7 +14,7 @@ describe('demo dataset', () => {
   });
 
   it('is pinned, so a screenshot today matches next month', () => {
-    expect(fnv1a(JSON.stringify(ds.plan)).toString(16).padStart(8, '0')).toBe('edec1048');
+    expect(fnv1a(JSON.stringify(ds.plan)).toString(16).padStart(8, '0')).toBe('5472f8bc');
   });
 
   it('has eight sites across four vendors, as tabled in the brief', () => {
@@ -140,6 +140,18 @@ describe('plan on the demo dataset', () => {
       for (const p of sp.periods) {
         if (!p.flow.classPossible) continue;
         expect(p.flow.gap, `${sp.site.id} ${p.weekLabel}`).toBeLessThanOrEqual(p.flow.capShortfall + 1e-9);
+      }
+    }
+  });
+
+  it('runs no class below the minimum class size unless a cap leaves less room', () => {
+    const min = ds.plan.constants.minClassSize;
+    for (const sp of plan.sites) {
+      for (const p of sp.periods) {
+        const n = p.flow.hiresToStart;
+        if (n === 0 || n >= min) continue;
+        const room = p.trace.find((s) => s.key === 'flow.classRoom')?.value;
+        expect(room, `${sp.site.id} ${p.weekLabel} class of ${n}`).toBeLessThan(min);
       }
     }
   });

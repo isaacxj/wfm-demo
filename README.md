@@ -15,7 +15,7 @@ Statixx Solutions. All data in this repository is invented.
 | 2 | Plan grid | Done |
 | 3 | Calculation inspector | Done |
 | 4 | Scenario comparison | Done |
-| 5 | Hiring plan view | Not started |
+| 5 | Hiring plan view | Done |
 | 6 | Excel export | Not started |
 | 7 | Deploy | Not started |
 
@@ -61,6 +61,7 @@ A textbook capacity model behind the `CapacityEngine` interface in
 - Interval: Erlang C, always floored at ceil(traffic ÷ occupancy ceiling)
 - Supply: weekly attrition = 1 − (1 − monthly)^(1 ÷ 4.33); a contracted cap limits productive hires and surfaces demand above it as a cap shortfall
 - Hiring: starters = ceil(deficit ÷ (1 − training attrition)), starting training + nesting weeks before the need. The recommended class lands in supply, so a persisting deficit is hired for once
+- Minimum class size: a recommended class has at least 8 starters, rounded up from the need where room under any cap allows; the extra graduates carry forward as a small surplus
 - Committed pipeline: classes already in training at plan start land in weeks 1 to 6; inside that lead time no new class can land, and any deficit remains as a lead-time shortfall
 - Filters: demand sums over the matching planning units; site supply is allocated to the slice by its share of rostered FTE
 
@@ -115,4 +116,16 @@ site-weeks over cap and lead-time shortfall, baseline against scenario. A
 scenario recalculates in well under a second. Selecting a change cell traces
 it as scenario minus baseline, each side opening into its own chain.
 Scenarios are kept in the browser's local storage.
+
+## Hiring plan
+
+The recruitment instruction for the open plan or scenario: how many to hire, at
+which site, starting which week. Classes are grouped by start week (or by site),
+each with its vendor, starters, expected graduates after training attrition, the
+training and nesting weeks, the week its graduates are productive, the deficit
+it closes and what drives it. A summary line gives classes, starters, graduates,
+the first class and the busiest start week. Needs hiring cannot meet are listed
+separately with an action: deficits inside the training lead time, and demand
+above a contracted cap. Every number is read from the plan, so the instruction
+and the grid agree, and any cell opens its site-week chain in the inspector.
 

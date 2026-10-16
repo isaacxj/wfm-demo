@@ -39,6 +39,8 @@ export interface SiteWeekInput {
   /** First week a new class can start. */
   firstStartWeek: number;
   trainingAttrition: number;
+  /** Smallest class worth running. A smaller need rounds up to it, room under any cap permitting. */
+  minClassSize?: number;
   trainingWeeks: number;
   nestingWeeks: number;
   codes?: {
@@ -48,6 +50,7 @@ export interface SiteWeekInput {
     committedHires?: string;
     cap?: string;
     trainingAttrition?: string;
+    minClassSize?: string;
     trainingWeeks?: string;
     nestingWeeks?: string;
   };
@@ -157,8 +160,9 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
   );
   let hireable = deficit;
   let capShortfall = 0;
+  let headroom: Ref | null = null;
   if (capRef) {
-    const headroom = t.calc(
+    headroom = t.calc(
       'headroom',
       'Headroom under cap',
       Math.max(0, capRef.value - before.value),
@@ -206,15 +210,47 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
   let starters: Ref;
   let leadTimeShortfall = 0;
   if (classPossible) {
-    starters = t.calc(
-      'hiresToStart',
-      'Hires to start',
+    const needed = t.calc(
+      'startersNeeded',
+      'Starters needed',
       Math.max(0, Math.ceil(hireable.value / (1 - tAttr.value) - EPS)),
       'heads',
       'ceil(hireable deficit ÷ (1 − training attrition))',
       `CEILING(${group(hireable.expr)}/(1-${tAttr.expr}),1)`,
       [hireable, tAttr],
     );
+    const minClass = t.input('minClassSize', 'Minimum class size', input.minClassSize ?? 1, 'heads', codes.minClassSize);
+    if (headroom) {
+      // Round up to the minimum class only as far as graduates still fit under the cap.
+      const room = t.calc(
+        'classRoom',
+        'Starters that fit under cap',
+        Math.floor(headroom.value / (1 - tAttr.value) + EPS),
+        'heads',
+        'floor(headroom ÷ (1 − training attrition))',
+        `FLOOR(${group(headroom.expr)}/(1-${tAttr.expr}),1)`,
+        [headroom, tAttr],
+      );
+      starters = t.calc(
+        'hiresToStart',
+        'Hires to start',
+        needed.value > 0 ? Math.max(needed.value, Math.min(minClass.value, room.value)) : 0,
+        'heads',
+        'max(starters needed, min(minimum class, starters that fit)); none if none needed',
+        `IF(${needed.expr}>0,MAX(${needed.expr},MIN(${minClass.expr},${room.expr})),0)`,
+        [needed, minClass, room],
+      );
+    } else {
+      starters = t.calc(
+        'hiresToStart',
+        'Hires to start',
+        needed.value > 0 ? Math.max(needed.value, minClass.value) : 0,
+        'heads',
+        'max(starters needed, minimum class size); none if none needed',
+        `IF(${needed.expr}>0,MAX(${needed.expr},${minClass.expr}),0)`,
+        [needed, minClass],
+      );
+    }
   } else {
     starters = t.calc('hiresToStart', 'Hires to start (start week precedes plan)', 0, 'heads', 'no class can land inside the lead time', '0', [start]);
     leadTimeShortfall = t.calc(

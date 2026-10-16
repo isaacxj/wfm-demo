@@ -4,7 +4,7 @@ import { RailIcon } from './icons.tsx';
 const PLANNING = [
   { id: 'plans', label: 'Plans', icon: 'plans', enabled: true },
   { id: 'scenarios', label: 'Scenarios', icon: 'scenarios', enabled: true },
-  { id: 'hiring', label: 'Hiring plan', icon: 'hiring', enabled: false },
+  { id: 'hiring', label: 'Hiring plan', icon: 'hiring', enabled: true },
 ];
 
 const SETUP = [
@@ -14,7 +14,7 @@ const SETUP = [
   { id: 'audit', label: 'Audit', icon: 'audit', enabled: false },
 ];
 
-export type View = 'plans' | 'scenarios';
+export type View = 'plans' | 'scenarios' | 'hiring';
 
 interface RailProps {
   view: View;
