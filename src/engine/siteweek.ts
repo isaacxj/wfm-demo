@@ -114,13 +114,14 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     'heads',
     'opening × period attrition rate',
     `${group(opening.expr)}*${group(rateExpr)}`,
+    [opening, t.ref('attr.periodAttrition')],
   );
   const tin = t.input('transfersIn', 'Transfers in', input.transfersIn ?? 0, 'heads');
   const tout = t.input('transfersOut', 'Transfers out', input.transfersOut ?? 0, 'heads');
   const retained = opening.value - attrition.value + tin.value - tout.value;
   const retainedExpr = `${group(opening.expr)}-${group(attrition.expr)}+${tin.expr}-${tout.expr}`;
 
-  const committedPlanned = t.input('committedPlanned', 'Committed hires (in training at plan start)', input.committedHires, 'heads', codes.committedHires);
+  const committedPlanned = t.input('committedPlanned', 'Committed hires (pipeline)', input.committedHires, 'heads', codes.committedHires);
   const capRef = cap === null ? null : t.input('cap', 'Contracted HC cap', cap, 'heads', codes.cap);
   const committed = capRef
     ? t.calc(
@@ -130,6 +131,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
         'heads',
         'min(committed, max(0, cap − retained HC))',
         `MAX(0,MIN(${committedPlanned.expr},${capRef.expr}-(${retainedExpr})))`,
+        [committedPlanned, capRef, opening, attrition, tin, tout],
       )
     : committedPlanned;
   const before = t.calc(
@@ -139,6 +141,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     'heads',
     'opening − attrition + transfers in − transfers out + committed hires',
     `${retainedExpr}+${group(committed.expr)}`,
+    [opening, attrition, tin, tout, committed],
   );
 
   // Recommended class.
@@ -150,6 +153,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     'FTE',
     'max(0, rostered required − HC before new class)',
     `MAX(0,${group(required.expr)}-${group(before.expr)})`,
+    [required, before],
   );
   let hireable = deficit;
   let capShortfall = 0;
@@ -161,6 +165,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
       'heads',
       'max(0, cap − HC before new class)',
       `MAX(0,${capRef.expr}-${group(before.expr)})`,
+      [capRef, before],
     );
     hireable = t.calc(
       'hireable',
@@ -169,6 +174,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
       'FTE',
       'min(deficit, headroom)',
       `MIN(${group(deficit.expr)},${group(headroom.expr)})`,
+      [deficit, headroom],
     );
     capShortfall = t.calc(
       'capShortfall',
@@ -177,12 +183,13 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
       'FTE',
       'deficit − hireable deficit',
       `${group(deficit.expr)}-${group(hireable.expr)}`,
+      [deficit, hireable],
     ).value;
   }
 
   const trn = t.input('trainingWeeks', 'Training', input.trainingWeeks, 'weeks', codes.trainingWeeks);
   const nst = t.input('nestingWeeks', 'Nesting', input.nestingWeeks, 'weeks', codes.nestingWeeks);
-  const lead = t.calc('leadWeeks', 'Lead time', trn.value + nst.value, 'weeks', 'training + nesting', `${trn.expr}+${nst.expr}`);
+  const lead = t.calc('leadWeeks', 'Lead time', trn.value + nst.value, 'weeks', 'training + nesting', `${trn.expr}+${nst.expr}`, [trn, nst]);
   const needed = t.input('week', 'Needed in week', input.week, 'week');
   const start = t.calc(
     'startPeriod',
@@ -191,6 +198,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     'week',
     'needed week − (training + nesting)',
     `${needed.expr}-${group(lead.expr)}`,
+    [needed, lead],
   );
   const classPossible = start.value >= input.firstStartWeek;
 
@@ -205,9 +213,10 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
       'heads',
       'ceil(hireable deficit ÷ (1 − training attrition))',
       `CEILING(${group(hireable.expr)}/(1-${tAttr.expr}),1)`,
+      [hireable, tAttr],
     );
   } else {
-    starters = t.calc('hiresToStart', 'Hires to start (start week precedes plan)', 0, 'heads', 'no class can land inside the lead time', '0');
+    starters = t.calc('hiresToStart', 'Hires to start (start week precedes plan)', 0, 'heads', 'no class can land inside the lead time', '0', [start]);
     leadTimeShortfall = t.calc(
       'leadTimeShortfall',
       'Lead-time shortfall',
@@ -215,6 +224,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
       'FTE',
       'hireable deficit no class can reach in time',
       hireable.expr,
+      [hireable, start],
     ).value;
   }
 
@@ -227,6 +237,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
         'heads',
         'min(hires to start × (1 − training attrition), cap − HC before new class)',
         `MAX(0,MIN(${group(starters.expr)}*(1-${tAttr.expr}),${capRef.expr}-${group(before.expr)}))`,
+        [starters, tAttr, capRef, before],
       )
     : t.calc(
         'classGraduates',
@@ -235,6 +246,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
         'heads',
         'hires to start × (1 − training attrition)',
         `${group(starters.expr)}*(1-${tAttr.expr})`,
+        [starters, tAttr],
       );
 
   const hires = t.calc(
@@ -244,6 +256,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     'heads',
     'committed hires + class graduates',
     `${group(committed.expr)}+${group(graduates.expr)}`,
+    [committed, graduates],
   );
   const closing = t.calc(
     'closing',
@@ -252,6 +265,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     'heads',
     'opening − attrition + hires productive + transfers in − transfers out',
     `${group(before.expr)}+${group(graduates.expr)}`,
+    [before, graduates],
   );
   const gap = t.calc(
     'gap',
@@ -260,6 +274,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     'FTE',
     'rostered required − closing',
     `${group(required.expr)}-${group(closing.expr)}`,
+    [required, closing],
   );
 
   return {

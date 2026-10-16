@@ -100,3 +100,19 @@ export function RailIcon({ name }: { name: keyof typeof railPaths | string }) {
     </svg>
   );
 }
+
+export function CollapseRight() {
+  return (
+    <svg {...base(10)} shapeRendering="geometricPrecision">
+      <path d="M2 1.5 L5.5 5 L2 8.5 M5.5 1.5 L9 5 L5.5 8.5" />
+    </svg>
+  );
+}
+
+export function ExpandLeft() {
+  return (
+    <svg {...base(10)} shapeRendering="geometricPrecision">
+      <path d="M8 1.5 L4.5 5 L8 8.5 M4.5 1.5 L1 5 L4.5 8.5" />
+    </svg>
+  );
+}

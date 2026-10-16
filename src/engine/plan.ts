@@ -8,7 +8,7 @@
 import { periodLabel } from './calendar.ts';
 import { periodRequirement, type Channel, type RequirementResult } from './requirement.ts';
 import { siteWeek, type SiteWeekResult } from './siteweek.ts';
-import { TraceBuilder, group, type TraceStep } from './trace.ts';
+import { TraceBuilder, group, type TracePart, type TraceStep } from './trace.ts';
 
 export interface PlanWeek {
   /** 1-based position in the horizon. */
@@ -204,7 +204,15 @@ export function computePlan(input: PlanInput): PlanResult {
           nestingWeeks: constants.codes.nestingWeeks,
         },
       });
+      t.input('workWeekHours', 'Work week', site.workWeekHours, 'hours/week', site.codes.workWeekHours);
+      t.input('occupancyCeiling', 'Occupancy ceiling', site.occupancyCeiling, 'ratio', site.codes.occupancyCeiling);
+      t.input('shrinkage', 'Shrinkage', site.shrinkage, 'ratio', site.codes.shrinkage);
       t.include('flow', flow.trace);
+      t.link('flow.rostered', [rostered]);
+      const prior = periods[w - 1];
+      if (prior) {
+        t.attach('flow.opening', [{ id: `${site.id}:${prior.weekLabel}`, label: `${prior.weekLabel} closing`, steps: prior.trace, focus: 'flow.closing' }]);
+      }
 
       periods.push({
         siteId: site.id,
@@ -242,7 +250,9 @@ export function rollUpDemand(t: TraceBuilder, unitPeriods: readonly UnitPeriod[]
     'seconds',
     'Σ(volume × AHT) ÷ Σ volume',
     volume.value === 0 ? '0' : `(${unitPeriods.map((u) => `${u.volume}*${u.aht}`).join('+')})/${group(volume.expr)}`,
+    [volume],
   );
+  t.attach('aht', unitParts(unitPeriods, 'aht'));
   const workload = sumStep(t, 'workload', 'Workload', 'hours', unitPeriods, (u) => u.requirement.workloadHours, (u) =>
     excelOf(u.requirement, 'workload'),
   );
@@ -266,7 +276,19 @@ function sumStep(
 ) {
   const total = units.reduce((s, u) => s + value(u), 0);
   const parts = units.map((u) => group(expr(u)));
-  return t.calc(key, `${label} (Σ ${units.length} units)`, total, unit, `Σ unit ${label.toLowerCase()}`, parts.length ? parts.join('+') : '0');
+  const ref = t.calc(key, `${label} (Σ ${units.length} units)`, total, unit, `Σ ${label} over planning units`, parts.length ? parts.join('+') : '0', []);
+  t.attach(key, unitParts(units, key));
+  return ref;
+}
+
+const CHANNEL_NAME: Readonly<Record<string, string>> = { voice: 'Voice', chat: 'Chat', deferred: 'Deferred' };
+
+export function unitLabel(u: PlanningUnit): string {
+  return `${u.lob} · ${u.language} · ${CHANNEL_NAME[u.channel] ?? u.channel}`;
+}
+
+function unitParts(units: readonly UnitPeriod[], focus: string): TracePart[] {
+  return units.map((u) => ({ id: u.unit.id, label: unitLabel(u.unit), steps: u.requirement.trace, focus }));
 }
 
 function excelOf(r: RequirementResult, key: string): string {

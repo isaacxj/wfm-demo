@@ -103,6 +103,7 @@ export function periodRequirement(input: RequirementInput): RequirementResult {
       'seconds',
       'AHT ÷ (concurrency × efficiency)',
       `${group(aht.expr)}/(${conc.expr}*${eff.expr})`,
+      [aht, conc, eff],
     );
   }
 
@@ -113,6 +114,7 @@ export function periodRequirement(input: RequirementInput): RequirementResult {
     'hours',
     channel === 'chat' ? 'volume × effective AHT ÷ 3600' : 'volume × AHT ÷ 3600',
     `${group(volume.expr)}*${group(handle.expr)}/3600`,
+    [volume, handle],
   );
 
   const week = t.input('workWeekHours', 'Work week', input.workWeekHours, 'hours/week', codes.workWeekHours);
@@ -131,6 +133,7 @@ export function periodRequirement(input: RequirementInput): RequirementResult {
     'FTE',
     'workload ÷ (work week × occupancy)',
     `${group(workload.expr)}/(${week.expr}*${occ.expr})`,
+    [workload, week, occ],
   );
 
   const shrink = t.input('shrinkage', 'Shrinkage', input.shrinkage, 'ratio', codes.shrinkage);
@@ -141,6 +144,7 @@ export function periodRequirement(input: RequirementInput): RequirementResult {
     'FTE',
     'required ÷ (1 − shrinkage)',
     `${group(required.expr)}/(1-${shrink.expr})`,
+    [required, shrink],
   );
 
   return {

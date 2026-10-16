@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { demoDataset } from '../data/dataset.ts';
-import { engine } from '../engine/index.ts';
+import { engine, periodLabel } from '../engine/index.ts';
 import { Grid, type CellRef } from './components/Grid.tsx';
 import { Inspector } from './components/Inspector.tsx';
 import { Rail } from './components/Rail.tsx';
@@ -14,6 +14,17 @@ const dataset = demoDataset();
 const t0 = performance.now();
 const plan = engine.computePlan(dataset.plan);
 const calcMs = performance.now() - t0;
+const labelOfWeek = (index: number) => periodLabel(dataset.plan.isoYear, index);
+
+const INSPECTOR_KEY = 'capacity-planner.inspector-open';
+
+function readInspectorOpen(): boolean {
+  try {
+    return window.localStorage.getItem(INSPECTOR_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
 
 export function App() {
   const [week, setWeek] = useState<number>(PLAN.landingWeek);
@@ -21,6 +32,31 @@ export function App() {
   const [filters, setFilters] = useState<Filters>(ALL_FILTERS);
   const [hidden, setHidden] = useState<ReadonlySet<ColumnKey>>(new Set());
   const [selected, setSelected] = useState<CellRef | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState<boolean>(readInspectorOpen);
+
+  const toggleInspector = useCallback(() => {
+    setInspectorOpen((open) => {
+      try {
+        window.localStorage.setItem(INSPECTOR_KEY, String(!open));
+      } catch {
+        // Preference only; ignore storage failures.
+      }
+      return !open;
+    });
+  }, []);
+
+  const select = useCallback((ref: CellRef | null) => {
+    setSelected(ref);
+    if (ref) setInspectorOpen(true);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) setSelected(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   const rows = useMemo(() => buildRows(plan, { week, filters, grouping }), [week, filters, grouping]);
   const unitCount = useMemo(() => dataset.units.filter(unitPredicate(filters)).length, [filters]);
@@ -28,7 +64,7 @@ export function App() {
   const selectedRow = selected ? rows.find((r) => r.id === selected.rowId) : undefined;
 
   return (
-    <div className="shell">
+    <div className={`shell ${inspectorOpen ? '' : 'inspector-collapsed'}`}>
       <TopBar weeks={plan.weeks} />
       <Rail sites={dataset.plan.sites.length} units={dataset.units.length} />
       <main className="main">
@@ -50,11 +86,18 @@ export function App() {
             allocated={isFiltered(filters)}
             hidden={hidden}
             selected={selectedRow ? selected : null}
-            onSelect={setSelected}
+            onSelect={select}
           />
         </div>
       </main>
-      <Inspector selection={selectedRow ? selected : null} row={selectedRow} weekLabel={weekLabel} />
+      <Inspector
+        open={inspectorOpen}
+        onToggle={toggleInspector}
+        rows={rows}
+        selection={selectedRow ? selected : null}
+        weekLabel={weekLabel}
+        labelOfWeek={labelOfWeek}
+      />
       <StatusBar
         engineName={engine.name}
         calcMs={calcMs}

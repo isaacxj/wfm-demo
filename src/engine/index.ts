@@ -57,7 +57,8 @@ export const textbookEngine: CapacityEngine = {
 
 export const engine: CapacityEngine = textbookEngine;
 
-export type { TraceStep, Unit } from './trace.ts';
+export type { Ref, TracePart, TraceStep, Unit } from './trace.ts';
+export { TraceBuilder } from './trace.ts';
 export type { Channel, RequirementInput, RequirementResult } from './requirement.ts';
 export type { IntervalInput, IntervalResult } from './erlang.ts';
 export type { SiteWeekInput, SiteWeekResult } from './siteweek.ts';
@@ -77,4 +78,5 @@ export type {
 } from './plan.ts';
 export { DEFAULT_CHAT_EFFICIENCY } from './requirement.ts';
 export { WEEKS_PER_MONTH } from './supply.ts';
+export { unitLabel } from './plan.ts';
 export { periodLabel, periodStart, isoWeekLabel, toIsoDate } from './calendar.ts';

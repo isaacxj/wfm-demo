@@ -41,6 +41,7 @@ export function periodAttritionRate(
     'ratio',
     '1 − (1 − monthly)^(1 ÷ periods per month)',
     `1-(1-${m.expr})^(1/${p.expr})`,
+    [m, p],
   );
   return { rate: rate.value, trace: t.steps };
 }
@@ -108,6 +109,7 @@ export function rollForward(input: RollForwardInput): RollForwardResult {
     'heads',
     'opening × period attrition rate',
     `${group(opening.expr)}*${group(rateExpr)}`,
+    [opening, t.ref('attr.periodAttrition')],
   );
   const planned = t.input('hiresPlanned', 'Hires reaching production (planned)', input.hiresProductive, 'heads', codes.hiresProductive);
   const tin = t.input('transfersIn', 'Transfers in', input.transfersIn ?? 0, 'heads', codes.transfersIn);
@@ -126,6 +128,7 @@ export function rollForward(input: RollForwardInput): RollForwardResult {
       'heads',
       'min(planned, max(0, cap − (opening − attrition + transfers)))',
       `MAX(0,MIN(${planned.expr},${capRef.expr}-(${beforeHiresExpr})))`,
+      [planned, capRef, opening, attrition, tin, tout],
     );
   }
 
@@ -136,6 +139,7 @@ export function rollForward(input: RollForwardInput): RollForwardResult {
     'heads',
     'opening − attrition + hires productive + transfers in − transfers out',
     `${group(opening.expr)}-${group(attrition.expr)}+${group(hires.expr)}+${tin.expr}-${tout.expr}`,
+    [opening, attrition, hires, tin, tout],
   );
 
   return {
@@ -203,9 +207,10 @@ export function hiringNeed(input: HiringInput): HiringResult {
     'FTE',
     'rostered required − closing',
     `${group(req.expr)}-${group(closing.expr)}`,
+    [req, closing],
   );
 
-  let hireable = t.calc('deficit', 'Deficit', Math.max(0, gap.value), 'FTE', 'max(0, gap)', `MAX(0,${group(gap.expr)})`);
+  let hireable = t.calc('deficit', 'Deficit', Math.max(0, gap.value), 'FTE', 'max(0, gap)', `MAX(0,${group(gap.expr)})`, [gap]);
   let shortfall = 0;
   if (cap !== null) {
     const capRef = t.input('cap', 'Contracted HC cap', cap, 'heads', codes.cap);
@@ -217,6 +222,7 @@ export function hiringNeed(input: HiringInput): HiringResult {
       'heads',
       'max(0, cap − closing)',
       `MAX(0,${capRef.expr}-${group(closing.expr)})`,
+      [capRef, closing],
     );
     const deficit = hireable;
     hireable = t.calc(
@@ -226,6 +232,7 @@ export function hiringNeed(input: HiringInput): HiringResult {
       'FTE',
       'min(deficit, headroom)',
       `MIN(${deficit.expr},${headroom.expr})`,
+      [deficit, headroom],
     );
     shortfall = t.calc(
       'capShortfall',
@@ -234,6 +241,7 @@ export function hiringNeed(input: HiringInput): HiringResult {
       'FTE',
       'deficit − hireable deficit',
       `${group(deficit.expr)}-${group(hireable.expr)}`,
+      [deficit, hireable],
     ).value;
   }
 
@@ -247,11 +255,12 @@ export function hiringNeed(input: HiringInput): HiringResult {
     'heads',
     'ceil(gap ÷ (1 − training attrition))',
     `CEILING(${group(hireable.expr)}/(1-${tAttr.expr}),1)`,
+    [hireable, tAttr],
   );
 
   const trn = t.input('trainingWeeks', 'Training', input.trainingWeeks, 'weeks', codes.trainingWeeks);
   const nst = t.input('nestingWeeks', 'Nesting', input.nestingWeeks, 'weeks', codes.nestingWeeks);
-  const lead = t.calc('leadWeeks', 'Lead time', trn.value + nst.value, 'weeks', 'training + nesting', `${trn.expr}+${nst.expr}`);
+  const lead = t.calc('leadWeeks', 'Lead time', trn.value + nst.value, 'weeks', 'training + nesting', `${trn.expr}+${nst.expr}`, [trn, nst]);
   const needed = t.input('neededPeriod', 'Needed in week', input.neededPeriod, 'week');
   const start = t.calc(
     'startPeriod',
@@ -260,6 +269,7 @@ export function hiringNeed(input: HiringInput): HiringResult {
     'week',
     'needed week − (training + nesting)',
     `${needed.expr}-${group(lead.expr)}`,
+    [needed, lead],
   );
 
   return {

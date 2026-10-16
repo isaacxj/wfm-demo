@@ -37,6 +37,8 @@ export interface SiteSlice {
   capShortfall: number;
   leadTimeShortfall: number;
   trace: TraceStep[];
+  /** The whole site-week's trace, for metrics a slice does not allocate. */
+  siteTrace: TraceStep[];
 }
 
 export function sliceSitePeriod(p: SitePeriod, include: (u: PlanningUnit) => boolean): SiteSlice | null {
@@ -51,6 +53,7 @@ export function sliceSitePeriod(p: SitePeriod, include: (u: PlanningUnit) => boo
     shrinkage: p.shrinkage,
     classStartLabel: p.classStartLabel,
     atCap: f.atCap,
+    siteTrace: p.trace,
   };
 
   if (units.length === p.units.length) {
@@ -78,6 +81,7 @@ export function sliceSitePeriod(p: SitePeriod, include: (u: PlanningUnit) => boo
   const t = new TraceBuilder();
   const d = rollUpDemand(t, units);
   const siteRostered = t.input('siteRostered', 'Site rostered FTE (all units)', p.rosteredFte, 'FTE');
+  t.attach('siteRostered', [{ id: p.siteId, label: `Site ${p.weekLabel}`, steps: p.trace, focus: 'rostered' }]);
   const share = t.calc(
     'share',
     'Share of site requirement',
@@ -85,10 +89,13 @@ export function sliceSitePeriod(p: SitePeriod, include: (u: PlanningUnit) => boo
     'ratio',
     'slice rostered FTE ÷ site rostered FTE',
     siteRostered.value === 0 ? '0' : `${group(d.rostered.expr)}/${siteRostered.expr}`,
+    [d.rostered, siteRostered],
   );
   const alloc = (key: string, label: string, siteValue: number, unit: 'heads' | 'FTE') => {
-    const site = t.input(`site.${key}`, `Site ${label.toLowerCase()}`, siteValue, unit);
-    return t.calc(key, `${label} (allocated)`, siteValue * share.value, unit, `site ${label.toLowerCase()} × share`, `${group(site.expr)}*${group(share.expr)}`);
+    const lower = lowerFirst(label);
+    const site = t.input(`site.${key}`, `Site ${lower}`, siteValue, unit);
+    t.attach(`site.${key}`, [{ id: p.siteId, label: `Site ${p.weekLabel}`, steps: p.trace, focus: `flow.${key}` }]);
+    return t.calc(key, `${label} (allocated)`, siteValue * share.value, unit, `site ${lower} × share`, `${group(site.expr)}*${group(share.expr)}`, [site, share]);
   };
   const opening = alloc('opening', 'Opening HC', f.opening, 'heads').value;
   const attrition = alloc('attrition', 'Attrition', f.attrition, 'heads').value;
@@ -102,6 +109,7 @@ export function sliceSitePeriod(p: SitePeriod, include: (u: PlanningUnit) => boo
     'FTE',
     'slice rostered FTE − allocated closing',
     `${group(d.rostered.expr)}-${group(closingRef.expr)}`,
+    [d.rostered, closingRef],
   ).value;
   const starters = alloc('hiresToStart', 'Hires to start', f.hiresToStart, 'heads').value;
 
@@ -124,4 +132,9 @@ export function sliceSitePeriod(p: SitePeriod, include: (u: PlanningUnit) => boo
     leadTimeShortfall: f.leadTimeShortfall * share.value,
     trace: t.steps,
   };
+}
+
+/** "Closing HC" → "closing HC": lower-case the first word only, keeping acronyms. */
+function lowerFirst(label: string): string {
+  return label.charAt(0).toLowerCase() + label.slice(1);
 }

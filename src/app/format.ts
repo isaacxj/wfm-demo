@@ -65,3 +65,49 @@ const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short
 export function shortDate(isoDate: string): string {
   return dateFmt.format(new Date(`${isoDate}T00:00:00Z`));
 }
+
+// Inspector step values ------------------------------------------------------
+
+export interface StepValue {
+  text: string;
+  unit: string;
+}
+
+const twoFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const countFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+const pct1 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const pct3 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+
+/** A trace value in its unit. Week indices render through `weekLabel`. */
+export function formatStep(value: number, unit: string, weekLabel: (index: number) => string): StepValue {
+  const signed = (s: string) => (value < 0 ? `${MINUS}${s}` : s);
+  const abs = Math.abs(value);
+  switch (unit) {
+    case 'contacts':
+      return { text: signed(intFmt.format(abs)), unit: '' };
+    case 'seconds':
+      return { text: signed(oneFmt.format(abs)), unit: 's' };
+    case 'hours':
+      return { text: signed(oneFmt.format(abs)), unit: 'hrs' };
+    case 'hours/week':
+      return { text: oneFmt.format(abs), unit: 'h/wk' };
+    case 'FTE':
+      return { text: signed(oneFmt.format(abs)), unit: 'FTE' };
+    case 'heads':
+      return { text: signed(oneFmt.format(abs)), unit: 'HC' };
+    case 'agents':
+      return { text: intFmt.format(abs), unit: 'agents' };
+    case 'erlangs':
+      return { text: twoFmt.format(abs), unit: 'E' };
+    case 'ratio':
+      return { text: signed((abs < 0.1 && abs > 0 ? pct3 : pct1).format(abs * 100)), unit: '%' };
+    case 'percent':
+      return { text: signed(pct1.format(abs)), unit: '%' };
+    case 'weeks':
+      return { text: countFmt.format(value), unit: 'wks' };
+    case 'week':
+      return { text: weekLabel(value), unit: '' };
+    default:
+      return { text: signed(countFmt.format(abs)), unit: '' };
+  }
+}

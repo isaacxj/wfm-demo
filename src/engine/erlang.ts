@@ -114,6 +114,7 @@ export function intervalStaffing(input: IntervalInput): IntervalResult {
     'erlangs',
     'contacts × AHT ÷ interval',
     `${contacts.expr}*${aht.expr}/${interval.expr}`,
+    [contacts, aht, interval],
   );
   const a = traffic.value;
 
@@ -125,6 +126,7 @@ export function intervalStaffing(input: IntervalInput): IntervalResult {
     'agents',
     'smallest N where SL(T) ≥ target',
     literal(erlangN),
+    [traffic, aht, target, threshold],
   );
 
   let ceilingN: number | null = null;
@@ -138,6 +140,7 @@ export function intervalStaffing(input: IntervalInput): IntervalResult {
       'agents',
       'ceil(traffic ÷ occupancy ceiling)',
       `CEILING(${group(traffic.expr)}/${occ.expr},1)`,
+      [traffic, occ],
     );
   }
 
@@ -150,6 +153,7 @@ export function intervalStaffing(input: IntervalInput): IntervalResult {
     'agents',
     ceilingN === null ? 'Erlang C requirement' : 'max(Erlang C, occupancy ceiling)',
     ceilingN === null ? literal(erlangN) : `MAX(${erlangN},${ceilingN})`,
+    [t.ref('erlangAgents'), ...(ceilingN === null ? [] : [t.ref('ceilingAgents')])],
   );
 
   // With no traffic nobody waits.
@@ -159,7 +163,7 @@ export function intervalStaffing(input: IntervalInput): IntervalResult {
   const asa = idle ? 0 : averageSpeedOfAnswer(agents, a, aht.value);
   const occupancy = idle ? 0 : a / agents;
   // The Erlang terms have no closed Excel form; their Excel cells carry the value.
-  t.calc('pw', 'Probability of wait', pw, 'ratio', 'C(N,A)', literal(pw));
+  t.calc('pw', 'Probability of wait', pw, 'ratio', 'C(N,A)', literal(pw), [t.ref('agents'), traffic]);
   t.calc(
     'serviceLevel',
     'Service level',
@@ -167,6 +171,7 @@ export function intervalStaffing(input: IntervalInput): IntervalResult {
     'ratio',
     '1 − C(N,A) · e^(−(N−A)·T/AHT)',
     idle ? literal(sl) : `1-${literal(pw)}*EXP(-(${agents}-${group(traffic.expr)})*${threshold.expr}/${aht.expr})`,
+    [t.ref('pw'), t.ref('agents'), traffic, threshold, aht],
   );
   t.calc(
     'asa',
@@ -175,8 +180,9 @@ export function intervalStaffing(input: IntervalInput): IntervalResult {
     'seconds',
     'C(N,A) · AHT ÷ (N − A)',
     idle ? literal(asa) : `${literal(pw)}*${aht.expr}/(${agents}-${group(traffic.expr)})`,
+    [t.ref('pw'), aht, t.ref('agents'), traffic],
   );
-  t.calc('occupancy', 'Occupancy', occupancy, 'ratio', 'A ÷ N', idle ? literal(0) : `${group(traffic.expr)}/${agents}`);
+  t.calc('occupancy', 'Occupancy', occupancy, 'ratio', 'A ÷ N', idle ? literal(0) : `${group(traffic.expr)}/${agents}`, [traffic, t.ref('agents')]);
 
   return {
     trafficErlangs: a,
