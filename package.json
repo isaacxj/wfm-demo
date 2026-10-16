@@ -10,14 +10,25 @@
     "node": ">=22.18"
   },
   "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "totals": "node scripts/totals.ts"
   },
   "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "typescript": "~5.9.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@tanstack/react-table": "^8.21.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   }
 }

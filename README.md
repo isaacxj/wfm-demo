@@ -12,7 +12,7 @@ Statixx Solutions. All data in this repository is invented.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Calculation engine and seeded dataset | Done |
-| 2 | Plan grid | Not started |
+| 2 | Plan grid | Done |
 | 3 | Calculation inspector | Not started |
 | 4 | Scenario comparison | Not started |
 | 5 | Hiring plan view | Not started |
@@ -25,7 +25,9 @@ Node 22.18 or later.
 
 ```bash
 npm install
-npm test           # engine reference cases and dataset checks
+npm run dev        # local app
+npm run build      # typecheck and static build to dist/
+npm test           # engine reference cases, dataset and grid checks
 npm run typecheck
 npm run totals     # prints dataset totals and the week 12 snapshot
 ```
@@ -42,6 +44,7 @@ src/engine/   calculation engine; the UI imports src/engine/index.ts only
   slice.ts        filtered slice of a site-week, supply allocated by share
   trace.ts        calculation trace with Excel equivalents
   calendar.ts     ISO week arithmetic
+src/app/      application shell, plan grid and its row model
 src/data/     seeded demo dataset, 8 sites, 4 vendors, 68 planning units, 52 weeks of 2027
 scripts/      totals.ts
 ```
@@ -62,3 +65,16 @@ A textbook capacity model behind the `CapacityEngine` interface in
 Every result carries an ordered trace: label, value, unit, formula, the
 assumption record code of each input, and an Excel formula that reproduces the
 value from literal inputs.
+
+## Plan grid
+
+Opens on the locked FY27 production plan at week 2027-W12. Rows are a vendor
+header, its sites and a subtotal, then a grand total; grouping switches to
+country or none. The toolbar filters by week, line of business, language and
+channel. Under a filter, demand covers only the matching planning units and
+site supply is split by share of rostered FTE; the supply band says so.
+
+Subtotals add the site values as displayed, so every summed column reconciles
+digit for digit on screen. Input cells carry a left marker; computed cells do
+not.
+
