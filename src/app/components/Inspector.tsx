@@ -1,18 +1,48 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { TraceStep } from '../../engine/index.ts';
-import { cellTrace, chainOf, membersOf } from '../cellTrace.ts';
+import { cellTrace, chainOf, membersOf, type CellTrace } from '../cellTrace.ts';
 import { copyText } from '../clipboard.ts';
-import { formatStep } from '../format.ts';
-import { columnSpec, type GridRow } from '../model.ts';
+import { formatStep, type Formatted } from '../format.ts';
+import { columnSpec, type ColumnKey, type GridRow } from '../model.ts';
 import type { CellRef } from './Grid.tsx';
 import { cellText } from './Grid.tsx';
 import { Caret, CollapseRight, ExpandLeft } from './icons.tsx';
 
+/** A resolved cell for the inspector: its row, its trace and what the grid shows. */
+export interface InspectorTarget {
+  /** Changes when the selection changes, resetting panel state. */
+  id: string;
+  row: GridRow;
+  members: readonly GridRow[];
+  key: ColumnKey;
+  trace: CellTrace | null;
+  shown: Formatted;
+  /** Which side of a comparison, e.g. "Baseline", "Scenario 1", "Change". */
+  side?: string;
+  isInput: boolean;
+}
+
+/** Target for a cell of a single-plan grid. */
+export function planTarget(rows: readonly GridRow[], ref: CellRef | null, side?: string): InspectorTarget | null {
+  const row = ref ? rows.find((r) => r.id === ref.rowId) : undefined;
+  if (!ref || !row) return null;
+  const members = membersOf(rows, row);
+  return {
+    id: `${row.id}:${ref.key}:${side ?? ''}`,
+    row,
+    members,
+    key: ref.key,
+    trace: cellTrace(row, ref.key, members),
+    shown: cellText(row, columnSpec(ref.key)),
+    side,
+    isInput: row.inputs.has(ref.key),
+  };
+}
+
 interface InspectorProps {
   open: boolean;
   onToggle: () => void;
-  rows: readonly GridRow[];
-  selection: CellRef | null;
+  target: InspectorTarget | null;
   weekLabel: string;
   /** Label for a week index, including weeks before the horizon. */
   labelOfWeek: (index: number) => string;
@@ -21,7 +51,7 @@ interface InspectorProps {
 const intFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
 const oneFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
-export function Inspector({ open, onToggle, rows, selection, weekLabel, labelOfWeek }: InspectorProps) {
+export function Inspector({ open, onToggle, target, weekLabel, labelOfWeek }: InspectorProps) {
   if (!open) {
     return (
       <aside className="inspector collapsed" aria-label="Inspector">
@@ -32,7 +62,6 @@ export function Inspector({ open, onToggle, rows, selection, weekLabel, labelOfW
       </aside>
     );
   }
-  const row = selection ? rows.find((r) => r.id === selection.rowId) : undefined;
   return (
     <aside className="inspector" aria-label="Inspector">
       <div className="panel-head">
@@ -41,8 +70,8 @@ export function Inspector({ open, onToggle, rows, selection, weekLabel, labelOfW
           <CollapseRight />
         </button>
       </div>
-      {selection && row ? (
-        <CellDetail key={`${row.id}:${selection.key}:${weekLabel}`} rows={rows} row={row} selection={selection} weekLabel={weekLabel} labelOfWeek={labelOfWeek} />
+      {target ? (
+        <CellDetail key={`${target.id}:${weekLabel}`} target={target} weekLabel={weekLabel} labelOfWeek={labelOfWeek} />
       ) : (
         <div className="panel-body">
           <div className="panel-empty">
@@ -56,17 +85,14 @@ export function Inspector({ open, onToggle, rows, selection, weekLabel, labelOfW
 }
 
 interface DetailProps {
-  rows: readonly GridRow[];
-  row: GridRow;
-  selection: CellRef;
+  target: InspectorTarget;
   weekLabel: string;
   labelOfWeek: (index: number) => string;
 }
 
-function CellDetail({ rows, row, selection, weekLabel, labelOfWeek }: DetailProps) {
-  const spec = columnSpec(selection.key);
-  const members = useMemo(() => membersOf(rows, row), [rows, row]);
-  const trace = useMemo(() => cellTrace(row, selection.key, members), [row, selection.key, members]);
+function CellDetail({ target, weekLabel, labelOfWeek }: DetailProps) {
+  const { row, members, trace, shown, isInput, side } = target;
+  const spec = columnSpec(target.key);
   const [full, setFull] = useState(false);
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle');
 
@@ -78,8 +104,6 @@ function CellDetail({ rows, row, selection, weekLabel, labelOfWeek }: DetailProp
 
   const focusStep = trace?.steps.find((s) => s.key === trace.focus);
   const steps = trace ? (full ? trace.steps : chainOf(trace.steps, trace.focus)) : [];
-  const shown = cellText(row, spec);
-  const isInput = row.inputs.has(spec.key);
   const notes = flagsFor(row, members, labelOfWeek);
 
   return (
@@ -93,6 +117,7 @@ function CellDetail({ rows, row, selection, weekLabel, labelOfWeek }: DetailProp
           <span className={`insp-value ${shown.tone ?? ''}`}>{shown.text}</span>
         </div>
         <div className="insp-tags">
+          {side && <span className="tag side">{side}</span>}
           <span className="tag">{isInput ? 'Input' : row.kind === 'site' ? 'Computed' : 'Sum of sites'}</span>
           {row.slice?.allocated && <span className="tag">Allocated</span>}
         </div>

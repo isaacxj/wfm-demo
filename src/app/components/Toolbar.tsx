@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { PlanWeek } from '../../engine/index.ts';
 import { shortDate } from '../format.ts';
 import {
@@ -26,12 +27,18 @@ interface ToolbarProps {
   onFilters: (f: Filters) => void;
   hidden: ReadonlySet<ColumnKey>;
   onHidden: (h: ReadonlySet<ColumnKey>) => void;
+  /** Columns the Columns menu offers. Defaults to every grid column but Site. */
+  columnChoices?: readonly ColumnKey[];
+  /** Extra controls after the filter chips. */
+  children?: ReactNode;
 }
 
 const valueLabel = (key: FilterKey, v: string) => (key === 'channel' ? (CHANNEL_LABEL[v] ?? v) : v);
 
 export function Toolbar(props: ToolbarProps) {
-  const { weeks, week, onWeek, grouping, onGrouping, filters, onFilters, hidden, onHidden } = props;
+  const { weeks, week, onWeek, grouping, onGrouping, filters, onFilters, hidden, onHidden, children } = props;
+  const choices = props.columnChoices ?? COLUMNS.filter((c) => c.key !== 'site').map((c) => c.key);
+  const shownCount = choices.filter((k) => !hidden.has(k)).length;
   const current = weeks[week - 1];
   const filtered = isFiltered(filters);
   const activeCount = FILTER_DIMENSIONS.filter((d) => filters[d.key].length < d.values.length).length;
@@ -179,6 +186,8 @@ export function Toolbar(props: ToolbarProps) {
         ))}
       </div>
 
+      {children}
+
       <div className="tl-spacer" />
 
       {filtered && <div className="tl-note">Supply split by share of rostered FTE</div>}
@@ -188,16 +197,16 @@ export function Toolbar(props: ToolbarProps) {
           align="right"
           trigger={(p) => (
             <button className="tl-button" {...p}>
-              Columns {hidden.size > 0 && <span className="tl-count">{COLUMNS.length - hidden.size}</span>} <Caret />
+              Columns {shownCount < choices.length && <span className="tl-count">{shownCount}</span>} <Caret />
             </button>
           )}
         >
           {() => (
             <div className="menu-scroll">
-              {COLUMN_GROUPS.filter((g) => g.id !== 'identity').map((g) => (
+              {COLUMN_GROUPS.filter((g) => g.id !== 'identity' && COLUMNS.some((c) => c.group === g.id && choices.includes(c.key))).map((g) => (
                 <div key={g.id}>
                   <div className="menu-heading">{g.label}</div>
-                  {COLUMNS.filter((c) => c.group === g.id).map((c) => {
+                  {COLUMNS.filter((c) => c.group === g.id && choices.includes(c.key)).map((c) => {
                     const on = !hidden.has(c.key);
                     return (
                       <button
@@ -220,7 +229,7 @@ export function Toolbar(props: ToolbarProps) {
                 </div>
               ))}
               <div className="menu-foot">
-                <button onClick={() => onHidden(new Set())} disabled={hidden.size === 0}>
+                <button onClick={() => onHidden(new Set())} disabled={shownCount === choices.length}>
                   Show all
                 </button>
               </div>

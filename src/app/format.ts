@@ -111,3 +111,21 @@ export function formatStep(value: number, unit: string, weekLabel: (index: numbe
       return { text: signed(countFmt.format(abs)), unit: '' };
   }
 }
+
+/**
+ * A change between two values. Always signed. Only the gap is coloured: a
+ * larger gap is a worse position, a smaller one a better one.
+ */
+export function formatDelta(value: number | null | undefined, format: Format, colour: boolean): Formatted {
+  if (value === null || value === undefined || Number.isNaN(value)) return NOT_APPLICABLE;
+  const decimals = format === 'int' ? 0 : 1;
+  const zeroText = decimals === 0 ? '0' : '0.0';
+  if (value === 0) return { text: zeroText, tone: 'muted' };
+  const shown = format === 'pct' ? value * 100 : value;
+  const scale = 10 ** decimals;
+  const rounded = Math.round(Math.abs(shown) * scale) / scale;
+  if (rounded === 0) return { text: zeroText, tone: undefined };
+  const body = (decimals === 0 ? intFmt : oneFmt).format(rounded);
+  const tone: Tone = colour ? (value > 0 ? 'neg' : 'pos') : undefined;
+  return { text: `${value > 0 ? '+' : MINUS}${body}`, tone };
+}

@@ -14,7 +14,7 @@ Statixx Solutions. All data in this repository is invented.
 | 1 | Calculation engine and seeded dataset | Done |
 | 2 | Plan grid | Done |
 | 3 | Calculation inspector | Done |
-| 4 | Scenario comparison | Not started |
+| 4 | Scenario comparison | Done |
 | 5 | Hiring plan view | Not started |
 | 6 | Excel export | Not started |
 | 7 | Deploy | Not started |
@@ -45,6 +45,7 @@ src/engine/   calculation engine; the UI imports src/engine/index.ts only
   trace.ts        calculation trace with Excel equivalents
   calendar.ts     ISO week arithmetic
 src/app/      application shell, plan grid, row model and calculation inspector
+src/scenario/ scenarios: overrides applied to a locked plan's inputs
 src/testing/  test helpers, never imported by the app
 src/data/     seeded demo dataset, 8 sites, 4 vendors, 68 planning units, 52 weeks of 2027
 scripts/      totals.ts
@@ -95,4 +96,23 @@ reproduces the selected value from literal inputs. A site above its contracted
 cap, a deficit inside the training lead time, and a filtered split are called
 out above the chain. The panel collapses to a narrow strip and remembers its
 state; selecting a cell opens it, Escape clears the selection.
+
+## Scenarios
+
+The FY27 production plan is locked. A scenario forks from it and overrides
+inputs: weekly volume (contacts per week or a percentage, for a range of weeks),
+AHT, shrinkage, monthly attrition, or a site's contracted headcount cap, each
+scoped to all sites, a vendor or one site. Added contacts are split across the
+planning units in scope by their share of each week's volume. The baseline is
+never edited; the scenario is a second plan the engine computes in full, and
+each overridden input carries the override's code (for example `SC1.OV2`) in
+its assumption record.
+
+The Scenarios view compares the two in one grid: per metric, baseline,
+scenario and change. It shows changed rows by default, with a toggle for all
+rows, and a horizon strip above it: average rostered FTE, hires to start,
+site-weeks over cap and lead-time shortfall, baseline against scenario. A
+scenario recalculates in well under a second. Selecting a change cell traces
+it as scenario minus baseline, each side opening into its own chain.
+Scenarios are kept in the browser's local storage.
 

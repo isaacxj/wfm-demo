@@ -1,11 +1,14 @@
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { useMemo } from 'react';
 import { formatValue, NOT_APPLICABLE, type Formatted } from '../format.ts';
-import { COLUMN_GROUPS, COLUMNS, type ColumnKey, type ColumnSpec, type GridRow, type Grouping, GROUPINGS } from '../model.ts';
+import { COLUMN_GROUPS, COLUMNS, type ColumnKey, type ColumnSpec, type GridRow, type Grouping, GROUPINGS, type NumericKey } from '../model.ts';
 
 declare module '@tanstack/react-table' {
   interface ColumnMeta<TData, TValue> {
     spec?: ColumnSpec;
+    /** Comparison grid: the metric and side a leaf column shows. */
+    metric?: NumericKey;
+    side?: 'base' | 'scen' | 'delta';
   }
 }
 

@@ -1,13 +1,20 @@
 import type { PlanWeek } from '../../engine/index.ts';
+import type { Scenario } from '../../scenario/scenario.ts';
 import { PLAN } from '../plan.ts';
 import { Caret, Check, Download, Lock, Mark } from './icons.tsx';
 import { Menu } from './Menu.tsx';
 
 interface TopBarProps {
   weeks: readonly PlanWeek[];
+  scenarios: readonly Scenario[];
+  /** Open scenario, or null for the locked baseline. */
+  activeId: string | null;
+  onActivate: (id: string | null) => void;
+  onFork: () => void;
 }
 
-export function TopBar({ weeks }: TopBarProps) {
+export function TopBar({ weeks, scenarios, activeId, onActivate, onFork }: TopBarProps) {
+  const active = scenarios.find((s) => s.id === activeId) ?? null;
   const first = weeks[0]?.label ?? '';
   const last = weeks.at(-1)?.label ?? '';
   return (
@@ -54,10 +61,14 @@ export function TopBar({ weeks }: TopBarProps) {
             <span className="tb-field">
               <span className="tb-label">Scenario</span>
               <span className="tb-value">
-                {PLAN.scenario}
-                <span className="lock-badge">
-                  <Lock /> LOCKED
-                </span>
+                {active ? active.name : PLAN.scenario}
+                {active ? (
+                  <span className="lock-badge draft">DRAFT</span>
+                ) : (
+                  <span className="lock-badge">
+                    <Lock /> LOCKED
+                  </span>
+                )}
                 <Caret />
               </span>
             </span>
@@ -67,12 +78,47 @@ export function TopBar({ weeks }: TopBarProps) {
         {(close) => (
           <>
             <div className="menu-heading">Scenarios</div>
-            <button className="menu-item" role="menuitemradio" aria-checked onClick={close}>
-              <span className="tick">
-                <Check />
-              </span>
+            <button
+              className="menu-item"
+              role="menuitemradio"
+              aria-checked={active === null}
+              onClick={() => {
+                onActivate(null);
+                close();
+              }}
+            >
+              <span className="tick">{active === null && <Check />}</span>
               {PLAN.scenario}
               <span className="aside">Locked</span>
+            </button>
+            {scenarios.map((sc) => (
+              <button
+                key={sc.id}
+                className="menu-item"
+                role="menuitemradio"
+                aria-checked={sc.id === activeId}
+                onClick={() => {
+                  onActivate(sc.id);
+                  close();
+                }}
+              >
+                <span className="tick">{sc.id === activeId && <Check />}</span>
+                {sc.name}
+                <span className="aside">
+                  {sc.overrides.length} override{sc.overrides.length === 1 ? '' : 's'}
+                </span>
+              </button>
+            ))}
+            <div className="menu-sep" />
+            <button
+              className="menu-item"
+              onClick={() => {
+                onFork();
+                close();
+              }}
+            >
+              <span className="tick" />
+              Fork scenario from {PLAN.version}
             </button>
           </>
         )}

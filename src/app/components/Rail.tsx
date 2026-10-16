@@ -3,7 +3,7 @@ import { RailIcon } from './icons.tsx';
 
 const PLANNING = [
   { id: 'plans', label: 'Plans', icon: 'plans', enabled: true },
-  { id: 'scenarios', label: 'Scenarios', icon: 'scenarios', enabled: false },
+  { id: 'scenarios', label: 'Scenarios', icon: 'scenarios', enabled: true },
   { id: 'hiring', label: 'Hiring plan', icon: 'hiring', enabled: false },
 ];
 
@@ -14,18 +14,24 @@ const SETUP = [
   { id: 'audit', label: 'Audit', icon: 'audit', enabled: false },
 ];
 
+export type View = 'plans' | 'scenarios';
+
 interface RailProps {
+  view: View;
+  onView: (view: View) => void;
+  locked: boolean;
   sites: number;
   units: number;
 }
 
-export function Rail({ sites, units }: RailProps) {
+export function Rail({ view, onView, locked, sites, units }: RailProps) {
   const item = (i: (typeof PLANNING)[number]) => (
     <button
       key={i.id}
       className="rail-item"
-      aria-current={i.id === 'plans' ? 'page' : undefined}
+      aria-current={i.id === view ? 'page' : undefined}
       aria-disabled={!i.enabled}
+      onClick={i.enabled ? () => onView(i.id as View) : undefined}
       title={i.enabled ? undefined : 'Not available in this build'}
     >
       <RailIcon name={i.icon} />
@@ -47,7 +53,7 @@ export function Rail({ sites, units }: RailProps) {
           <dt>Plan</dt>
           <dd>{PLAN.version}</dd>
           <dt>State</dt>
-          <dd>Locked</dd>
+          <dd>{locked ? 'Locked' : 'Scenario draft'}</dd>
           <dt>Locked on</dt>
           <dd>{PLAN.lockedOn}</dd>
           <dt>Owner</dt>

@@ -1,51 +1,77 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { demoDataset } from '../data/dataset.ts';
-import { engine, periodLabel } from '../engine/index.ts';
+import { engine, periodLabel, type PlanResult } from '../engine/index.ts';
+import { applyScenario, type Scenario } from '../scenario/scenario.ts';
+import { buildCompare, COMPARE_METRICS, DEFAULT_COMPARE_HIDDEN, deltaOf, deltaTrace, horizonSummary } from './compare.ts';
+import { CompareGrid, type CompareRef } from './components/CompareGrid.tsx';
 import { Grid, type CellRef } from './components/Grid.tsx';
-import { Inspector } from './components/Inspector.tsx';
-import { Rail } from './components/Rail.tsx';
+import { Inspector, planTarget, type InspectorTarget } from './components/Inspector.tsx';
+import { Rail, type View } from './components/Rail.tsx';
+import { ScenarioBar, type DraftOverride } from './components/ScenarioBar.tsx';
 import { StatusBar } from './components/StatusBar.tsx';
 import { Toolbar } from './components/Toolbar.tsx';
 import { TopBar } from './components/TopBar.tsx';
-import { ALL_FILTERS, buildRows, isFiltered, unitPredicate, type ColumnKey, type Filters, type Grouping } from './model.ts';
+import { formatDelta } from './format.ts';
+import { ALL_FILTERS, buildRows, columnSpec, isFiltered, unitPredicate, type ColumnKey, type Filters, type Grouping, type NumericKey } from './model.ts';
 import { PLAN } from './plan.ts';
 
 const dataset = demoDataset();
 const t0 = performance.now();
-const plan = engine.computePlan(dataset.plan);
-const calcMs = performance.now() - t0;
+const basePlan = engine.computePlan(dataset.plan);
+const baseMs = performance.now() - t0;
 const labelOfWeek = (index: number) => periodLabel(dataset.plan.isoYear, index);
+const HORIZON = dataset.plan.weeks.length;
 
 const INSPECTOR_KEY = 'capacity-planner.inspector-open';
+const SCENARIOS_KEY = 'capacity-planner.scenarios';
 
-function readInspectorOpen(): boolean {
+function readStored<T>(key: string, fallback: T, parse: (raw: string) => T): T {
   try {
-    return window.localStorage.getItem(INSPECTOR_KEY) !== 'false';
+    const raw = window.localStorage.getItem(key);
+    return raw === null ? fallback : parse(raw);
   } catch {
-    return true;
+    return fallback;
   }
 }
 
+function writeStored(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Per-browser convenience only; ignore storage failures.
+  }
+}
+
+function parseScenarios(raw: string): Scenario[] {
+  const value: unknown = JSON.parse(raw);
+  return Array.isArray(value) ? (value as Scenario[]).filter((s) => s && typeof s.id === 'string' && Array.isArray(s.overrides)) : [];
+}
+
+type AnyRef = (CellRef & { side?: undefined }) | CompareRef;
+
 export function App() {
+  const [view, setView] = useState<View>('plans');
   const [week, setWeek] = useState<number>(PLAN.landingWeek);
   const [grouping, setGrouping] = useState<Grouping>('vendor');
   const [filters, setFilters] = useState<Filters>(ALL_FILTERS);
   const [hidden, setHidden] = useState<ReadonlySet<ColumnKey>>(new Set());
-  const [selected, setSelected] = useState<CellRef | null>(null);
-  const [inspectorOpen, setInspectorOpen] = useState<boolean>(readInspectorOpen);
+  const [compareHidden, setCompareHidden] = useState<ReadonlySet<ColumnKey>>(DEFAULT_COMPARE_HIDDEN);
+  const [changedOnly, setChangedOnly] = useState(true);
+  const [selected, setSelected] = useState<AnyRef | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState<boolean>(() => readStored(INSPECTOR_KEY, true, (r) => r !== 'false'));
+  const [scenarios, setScenarios] = useState<Scenario[]>(() => readStored(SCENARIOS_KEY, [], parseScenarios));
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => writeStored(SCENARIOS_KEY, JSON.stringify(scenarios)), [scenarios]);
 
   const toggleInspector = useCallback(() => {
     setInspectorOpen((open) => {
-      try {
-        window.localStorage.setItem(INSPECTOR_KEY, String(!open));
-      } catch {
-        // Preference only; ignore storage failures.
-      }
+      writeStored(INSPECTOR_KEY, String(!open));
       return !open;
     });
   }, []);
 
-  const select = useCallback((ref: CellRef | null) => {
+  const select = useCallback((ref: AnyRef | null) => {
     setSelected(ref);
     if (ref) setInspectorOpen(true);
   }, []);
@@ -58,53 +84,231 @@ export function App() {
     return () => document.removeEventListener('keydown', onKey);
   }, []);
 
-  const rows = useMemo(() => buildRows(plan, { week, filters, grouping }), [week, filters, grouping]);
-  const unitCount = useMemo(() => dataset.units.filter(unitPredicate(filters)).length, [filters]);
-  const weekLabel = plan.weeks[week - 1]?.label ?? '';
-  const selectedRow = selected ? rows.find((r) => r.id === selected.rowId) : undefined;
+  // Scenario lifecycle -----------------------------------------------------------
 
-  return (
-    <div className={`shell ${inspectorOpen ? '' : 'inspector-collapsed'}`}>
-      <TopBar weeks={plan.weeks} />
-      <Rail sites={dataset.plan.sites.length} units={dataset.units.length} />
-      <main className="main">
-        <Toolbar
-          weeks={plan.weeks}
-          week={week}
-          onWeek={setWeek}
-          grouping={grouping}
-          onGrouping={setGrouping}
-          filters={filters}
-          onFilters={setFilters}
-          hidden={hidden}
-          onHidden={setHidden}
-        />
+  const active = scenarios.find((s) => s.id === activeId) ?? null;
+
+  const fork = useCallback(() => {
+    setScenarios((list) => {
+      const n = list.reduce((m, s) => Math.max(m, Number(s.code.replace(/\D/g, '')) || 0), 0) + 1;
+      const sc: Scenario = { id: `s${n}`, code: `SC${n}`, name: `Scenario ${n}`, forkedFrom: `${PLAN.name} ${PLAN.version}`, overrides: [] };
+      setActiveId(sc.id);
+      return [...list, sc];
+    });
+    setView('scenarios');
+    setSelected(null);
+  }, []);
+
+  const updateActive = useCallback(
+    (fn: (s: Scenario) => Scenario) => setScenarios((list) => list.map((s) => (s.id === activeId ? fn(s) : s))),
+    [activeId],
+  );
+
+  const addOverride = useCallback(
+    (draft: DraftOverride) =>
+      updateActive((s) => {
+        const n = s.overrides.reduce((m, o) => Math.max(m, Number(o.code.split('.OV')[1]) || 0), 0) + 1;
+        return { ...s, overrides: [...s.overrides, { ...draft, code: `${s.code}.OV${n}` } as Scenario['overrides'][number]] };
+      }),
+    [updateActive],
+  );
+
+  const removeOverride = useCallback(
+    (code: string) => updateActive((s) => ({ ...s, overrides: s.overrides.filter((o) => o.code !== code) })),
+    [updateActive],
+  );
+
+  const discard = useCallback(() => {
+    setScenarios((list) => list.filter((s) => s.id !== activeId));
+    setActiveId(null);
+    setSelected(null);
+  }, [activeId]);
+
+  const activate = useCallback((id: string | null) => {
+    setActiveId(id);
+    setSelected(null);
+  }, []);
+
+  const changeView = useCallback((v: View) => {
+    setView(v);
+    setSelected(null);
+  }, []);
+
+  // Computation -------------------------------------------------------------------
+
+  const scen = useMemo<{ plan: PlanResult; ms: number } | null>(() => {
+    if (!active) return null;
+    const start = performance.now();
+    const plan = engine.computePlan(applyScenario(dataset.plan, active));
+    return { plan, ms: performance.now() - start };
+  }, [active]);
+
+  const shownPlan = scen?.plan ?? basePlan;
+  const opts = useMemo(() => ({ week, filters, grouping }), [week, filters, grouping]);
+  const rows = useMemo(() => buildRows(shownPlan, opts), [shownPlan, opts]);
+  const compare = useMemo(
+    () => (view === 'scenarios' && scen ? buildCompare(basePlan, scen.plan, opts, changedOnly) : null),
+    [view, scen, opts, changedOnly],
+  );
+  const summary = useMemo(() => (scen ? horizonSummary(basePlan, scen.plan) : null), [scen]);
+  const metrics = useMemo(() => COMPARE_METRICS.filter((k) => !compareHidden.has(k)), [compareHidden]);
+
+  const unitCount = useMemo(() => dataset.units.filter(unitPredicate(filters)).length, [filters]);
+  const weekLabel = basePlan.weeks[week - 1]?.label ?? '';
+
+  const target = useMemo<InspectorTarget | null>(() => {
+    if (!selected) return null;
+    if (view === 'plans' || !compare || !active) return planTarget(rows, selected.side ? null : selected);
+    const ref = selected as CompareRef;
+    if (!ref.side) return null;
+    if (ref.side === 'base') return planTarget(compare.baseRows, ref, 'Baseline');
+    if (ref.side === 'scen') return planTarget(compare.scenRows, ref, active.name);
+    const row = compare.rows.find((r) => r.id === ref.rowId);
+    if (!row || ref.key === 'site' || ref.key === 'classStart') return null;
+    const key = ref.key as NumericKey;
+    const spec = columnSpec(key);
+    const scenTarget = planTarget(compare.scenRows, ref, 'Change');
+    if (!scenTarget) return null;
+    return {
+      ...scenTarget,
+      id: `${row.id}:${key}:delta`,
+      trace: deltaTrace(row, key, compare, active.name),
+      shown: formatDelta(deltaOf(row, key), spec.format ?? 'one', key === 'gap'),
+      isInput: false,
+    };
+  }, [selected, view, compare, active, rows]);
+
+  const toolbar = (
+    choices: readonly ColumnKey[] | undefined,
+    hiddenSet: ReadonlySet<ColumnKey>,
+    onHidden: (h: ReadonlySet<ColumnKey>) => void,
+    extra?: ReactNode,
+  ) => (
+    <Toolbar
+      weeks={basePlan.weeks}
+      week={week}
+      onWeek={setWeek}
+      grouping={grouping}
+      onGrouping={setGrouping}
+      filters={filters}
+      onFilters={setFilters}
+      hidden={hiddenSet}
+      onHidden={onHidden}
+      columnChoices={choices}
+    >
+      {extra}
+    </Toolbar>
+  );
+
+  let main: ReactNode;
+  if (view === 'plans') {
+    main = (
+      <>
+        {toolbar(undefined, hidden, setHidden)}
         <div className="grid-scroll">
           <Grid
             rows={rows}
             grouping={grouping}
             allocated={isFiltered(filters)}
             hidden={hidden}
-            selected={selectedRow ? selected : null}
+            selected={selected && !selected.side ? selected : null}
             onSelect={select}
           />
         </div>
-      </main>
-      <Inspector
-        open={inspectorOpen}
-        onToggle={toggleInspector}
-        rows={rows}
-        selection={selectedRow ? selected : null}
-        weekLabel={weekLabel}
-        labelOfWeek={labelOfWeek}
-      />
+      </>
+    );
+  } else if (!active || !scen || !compare || !summary) {
+    main = (
+      <div className="empty-view">
+        <h2>Compare a scenario with the locked plan</h2>
+        <p>
+          A scenario forks from {PLAN.name} {PLAN.version}. Override volume, AHT, shrinkage, attrition or a site's headcount cap;
+          the baseline stays locked, and every change shows beside it as baseline, scenario and delta.
+        </p>
+        <button className="primary-button" onClick={fork}>
+          Fork scenario from {PLAN.version}
+        </button>
+        {scenarios.length > 0 && (
+          <div className="scenario-list">
+            {scenarios.map((s) => (
+              <button key={s.id} onClick={() => activate(s.id)}>
+                <span>{s.name}</span>
+                <span className="tl-key">
+                  {s.overrides.length} override{s.overrides.length === 1 ? '' : 's'}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  } else {
+    main = (
+      <>
+        <ScenarioBar
+          scenario={active}
+          sites={dataset.plan.sites}
+          vendors={dataset.vendors}
+          horizon={HORIZON}
+          summary={summary}
+          calcMs={scen.ms}
+          onAdd={addOverride}
+          onRemove={removeOverride}
+          onDiscard={discard}
+        />
+        {toolbar(
+          COMPARE_METRICS,
+          compareHidden,
+          setCompareHidden,
+          <div className="tl-seg compare-note">
+            <span className="ov-seg" role="group" aria-label="Rows">
+              <button aria-pressed={changedOnly} onClick={() => setChangedOnly(true)}>
+                Changed rows
+              </button>
+              <button aria-pressed={!changedOnly} onClick={() => setChangedOnly(false)}>
+                All rows
+              </button>
+            </span>
+            <span className="tl-key">
+              <span className="tl-num">{compare.changedSites}</span> of <span className="tl-num">{compare.totalSites}</span> sites changed
+            </span>
+          </div>,
+        )}
+        <div className="grid-scroll">
+          {compare.rows.length > 0 ? (
+            <CompareGrid
+              rows={compare.rows}
+              metrics={metrics}
+              grouping={grouping}
+              scenarioName={active.name}
+              selected={selected && selected.side ? (selected as CompareRef) : null}
+              onSelect={select}
+            />
+          ) : (
+            <div className="grid-empty">
+              No site differs from the baseline in {weekLabel}.{' '}
+              {active.overrides.length === 0 ? 'Add an override above.' : 'Try another week, or show all rows.'}
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className={`shell ${inspectorOpen ? '' : 'inspector-collapsed'}`}>
+      <TopBar weeks={basePlan.weeks} scenarios={scenarios} activeId={activeId} onActivate={activate} onFork={fork} />
+      <Rail view={view} onView={changeView} locked={!active} sites={dataset.plan.sites.length} units={dataset.units.length} />
+      <main className="main">{main}</main>
+      <Inspector open={inspectorOpen} onToggle={toggleInspector} target={target} weekLabel={weekLabel} labelOfWeek={labelOfWeek} />
       <StatusBar
         engineName={engine.name}
-        calcMs={calcMs}
-        siteWeeks={plan.sites.length * plan.weeks.length}
+        calcMs={scen ? scen.ms : baseMs}
+        siteWeeks={basePlan.sites.length * basePlan.weeks.length}
         sitesShown={rows.filter((r) => r.kind === 'site').length}
         units={unitCount}
         weekLabel={weekLabel}
+        scenario={active?.name ?? null}
       />
     </div>
   );
