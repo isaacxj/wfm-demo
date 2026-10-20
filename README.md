@@ -7,6 +7,11 @@ starting which week.
 
 Statixx Solutions. All data in this repository is invented.
 
+**Click-through demo:** https://isaacxj.github.io/wfm-demo/ (desktop browser,
+1600px wide or more)
+
+![Plan grid, week 2027-W12](docs/screenshots/01-plan-grid.png)
+
 ## Build status
 
 | Phase | Scope | Status |
@@ -17,7 +22,84 @@ Statixx Solutions. All data in this repository is invented.
 | 4 | Scenario comparison | Done |
 | 5 | Hiring plan view | Done |
 | 6 | Excel export | Done |
-| 7 | Deploy | Not started |
+| 7 | Deploy | Interim: GitHub Pages click-through. Final host to follow |
+
+## Demo walkthrough
+
+Seven steps, following the demo script. Everything runs in the browser on an
+invented 2027 dataset: 8 sites, 4 vendors, 68 planning units, 52 weeks.
+
+### 1. Open the locked production plan and read the grid
+
+The app opens on **FY27 Production Plan v3**, scenario **Baseline**, marked
+**LOCKED**, at week **2027-W12**. Rows are each vendor, its sites, a subtotal,
+then the grand total. Columns run demand → requirement → supply → gap and
+hiring. Step through weeks with ‹ ›; filter by line of business, language and
+channel; regroup by country. Subtotals add the displayed site values exactly.
+Faint left markers show the input cells a planner may change. Manila-1 carries
+a **CAP** flag whenever its headcount sits at its contracted cap of 980.
+
+### 2. Move AHT by 5 percent
+
+Open **Scenarios** → **Fork scenario from v3** → **+ Add override** → **AHT**,
++5, all sites, all weeks → **Apply**. Every metric now shows baseline,
+scenario and change side by side. In 2027-W12, rostered FTE rises by
+**+243.1**. Over the year, hires to start rise from 3,436 to 3,795. The baseline
+stays locked; the scenario is a separate, fully recalculated plan.
+
+![AHT +5% compared with the baseline](docs/screenshots/02-scenario-aht.png)
+
+### 3. Add 10,000 contacts a week and compare side by side
+
+Remove the AHT override (× on its chip), then **+ Add override** → **Volume**,
++10,000 contacts / week → **Apply**. The grand total volume change is exactly
+**+10,000**, split across planning units by their share of each week's volume.
+Rostered FTE moves **+44.5** in W12. "Changed rows" / "All rows" toggles the
+unchanged sites. The strip above the grid summarises the whole year.
+
+![+10,000 contacts a week](docs/screenshots/03-scenario-volume.png)
+
+### 4. Cut Manila-1 below its requirement
+
+**+ Add override** → **HC cap** → Manila-1 → **900** → **Apply**. Manila-1's
+closing headcount drops to the cap and its gap rises by **+83.7**. Selecting the
+change cell shows the cap note in the inspector: requirement exceeds the cap,
+and the shortfall cannot be hired at this site.
+
+![Manila-1 capped at 900](docs/screenshots/04-scenario-cap.png)
+
+### 5. Read the hiring plan
+
+**Hiring plan** in the rail. This is the recruitment instruction: for each start
+week, which site hires how many, training and nesting weeks, the week the class
+is productive, and why. 139 classes and 3,436 starters across the year; the
+busiest start week is 2027-W25, ahead of the marketing spike. Needs hiring
+cannot meet are listed underneath: deficits inside the six-week lead time, and
+demand above a contracted cap.
+
+![Hiring plan grouped by start week](docs/screenshots/05-hiring-plan.png)
+
+### 6. Trace any number
+
+Select any cell. The inspector shows the chain behind it: every intermediate
+value, its formula, and the assumption code of each input. Totals open into
+their planning units, and opening headcount into the prior week.
+**Copy as Excel formula** copies a formula that reproduces the value. Shown:
+Manila-1's gap in 2027-W32, +132.4 FTE above its cap.
+
+![Inspector on Manila-1's gap](docs/screenshots/06-inspector.png)
+
+### 7. Export to Excel
+
+**Export** (top right) saves the current view as .xlsx, keeping its structure:
+merged column-group bands, collapsible vendor groups, live SUBTOTAL formulas
+and change formulas. Shown: the comparison from step 4, rendered from the
+exported file.
+
+![Exported comparison workbook](docs/screenshots/07-excel-export.png)
+
+Scenarios are kept in the browser's local storage. **Discard scenario**
+returns to a clean start.
 
 ## Commands
 
@@ -143,4 +225,14 @@ display precision, and comparison changes are formulas, so the workbook adds
 up exactly as the screen does and keeps doing so when edited. A comparison
 export includes every row, changed or not. The spreadsheet library (exceljs)
 loads on first export only.
+
+## Deployment
+
+Every push to `main` runs `.github/workflows/pages.yml`, which runs the tests,
+builds, and publishes `dist/` to GitHub Pages. The build uses relative asset
+paths, so the same output also serves from a domain root when the demo moves
+to its final host. The page carries `noindex, nofollow`.
+
+One-time setup: repository **Settings → Pages → Build and deployment → Source:
+GitHub Actions**.
 
