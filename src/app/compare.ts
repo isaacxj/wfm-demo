@@ -19,20 +19,20 @@ export const COMPARE_METRICS: readonly NumericKey[] = [
   'aht',
   'workload',
   'shrink',
+  'productive',
   'required',
-  'rostered',
   'opening',
   'attrition',
   'hires',
-  'closing',
-  'gap',
+  'planned',
+  'overUnder',
   'hireNeed',
 ];
 
 export const DEFAULT_COMPARE_HIDDEN: ReadonlySet<ColumnKey> = new Set<ColumnKey>([
   'workload',
   'shrink',
-  'required',
+  'productive',
   'opening',
   'attrition',
   'hires',
@@ -130,7 +130,7 @@ export function deltaTrace(row: CompareRow, key: NumericKey, model: CompareModel
 
 /** Horizon totals for the summary strip. */
 export interface HorizonSummary {
-  avgRostered: [number, number];
+  avgRequired: [number, number];
   starters: [number, number];
   capShortfallWeeks: [number, number];
   leadShortfallFte: [number, number];
@@ -141,7 +141,7 @@ export function horizonSummary(base: PlanResult, scen: PlanResult): HorizonSumma
     p.sites.reduce((a, sp) => a + sp.periods.reduce((b, x) => b + f(x), 0), 0);
   const both = (f: (p: PlanResult) => number): [number, number] => [f(base), f(scen)];
   return {
-    avgRostered: both((p) => sum(p, (x) => x.rosteredFte) / p.weeks.length),
+    avgRequired: both((p) => sum(p, (x) => x.requiredFte) / p.weeks.length),
     starters: both((p) => sum(p, (x) => x.flow.hiresToStart)),
     capShortfallWeeks: both((p) => sum(p, (x) => (x.flow.capShortfall > 0.05 ? 1 : 0))),
     leadShortfallFte: both((p) => sum(p, (x) => x.flow.leadTimeShortfall)),

@@ -21,13 +21,13 @@ const SITE_FOCUS: Readonly<Partial<Record<ColumnKey, string>>> = {
   workload: 'workload',
   occ: 'occupancyCeiling',
   shrink: 'shrinkage',
+  productive: 'productive',
   required: 'required',
-  rostered: 'rostered',
   opening: 'flow.opening',
   attrition: 'flow.attrition',
   hires: 'flow.hiresProductive',
-  closing: 'flow.closing',
-  gap: 'flow.gap',
+  planned: 'flow.closing',
+  overUnder: 'flow.overUnder',
   hireNeed: 'flow.hiresToStart',
   classStart: 'flow.startPeriod',
 };
@@ -37,13 +37,13 @@ const SLICE_FOCUS: Readonly<Partial<Record<ColumnKey, string>>> = {
   volume: 'volume',
   aht: 'aht',
   workload: 'workload',
+  productive: 'productive',
   required: 'required',
-  rostered: 'rostered',
   opening: 'opening',
   attrition: 'attrition',
   hires: 'hiresProductive',
-  closing: 'closing',
-  gap: 'gap',
+  planned: 'closing',
+  overUnder: 'overUnder',
   hireNeed: 'hiresToStart',
 };
 
@@ -101,17 +101,17 @@ function aggregateTrace(key: ColumnKey, members: readonly GridRow[]): CellTrace 
       return { steps: t.steps, focus: 'total' };
     }
     case 'effectiveShrink': {
-      const req = sites.map((m) => memberInput(m, 'required', m.slice!.requiredFte, 'required', 'required FTE'));
-      const rost = sites.map((m) => memberInput(m, 'rostered', m.slice!.rosteredFte, 'rostered', 'rostered FTE'));
-      const r = rost.reduce((s, x) => s + x.value, 0);
+      const prod = sites.map((m) => memberInput(m, 'productive', m.slice!.productiveFte, 'productive', 'productive FTE'));
+      const reqd = sites.map((m) => memberInput(m, 'required', m.slice!.requiredFte, 'required', 'required FTE'));
+      const r = reqd.reduce((s, x) => s + x.value, 0);
       t.calc(
         'total',
         'Effective shrinkage',
-        r === 0 ? 0 : 1 - req.reduce((s, x) => s + x.value, 0) / r,
+        r === 0 ? 0 : 1 - prod.reduce((s, x) => s + x.value, 0) / r,
         'ratio',
-        '1 − Σ required ÷ Σ rostered',
-        r === 0 ? '0' : `1-(${req.map((x) => x.expr).join('+')})/(${rost.map((x) => x.expr).join('+')})`,
-        [...req, ...rost],
+        '1 − Σ productive ÷ Σ required',
+        r === 0 ? '0' : `1-(${prod.map((x) => x.expr).join('+')})/(${reqd.map((x) => x.expr).join('+')})`,
+        [...prod, ...reqd],
       );
       return { steps: t.steps, focus: 'total' };
     }
@@ -131,7 +131,7 @@ function unitOf(key: ColumnKey) {
     case 'opening':
     case 'attrition':
     case 'hires':
-    case 'closing':
+    case 'planned':
     case 'hireNeed':
       return 'heads' as const;
     default:

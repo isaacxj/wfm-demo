@@ -10,7 +10,7 @@ import { ALL_FILTERS } from './model.ts';
 const base = demoDataset().plan;
 const basePlan = engine.computePlan(base);
 const scen = (o: Override) => engine.computePlan(applyScenario(base, { id: 's', code: 'SC1', name: 'Scenario 1', forkedFrom: 'v3', overrides: [o] }));
-const opts = { week: 12, filters: ALL_FILTERS, grouping: 'vendor' as const };
+const opts = { week: 12, filters: ALL_FILTERS, grouping: 'outsourcer' as const };
 
 const plus10k = scen({ code: 'SC1.OV1', kind: 'volume', scope: { type: 'all' }, mode: 'add', value: 10_000, fromWeek: 1, toWeek: 52 });
 const capMnl1 = scen({ code: 'SC1.OV1', kind: 'cap', scope: { type: 'site', siteId: 'MNL1' }, value: 900 });
@@ -20,7 +20,7 @@ describe('comparison', () => {
     const m = buildCompare(basePlan, plus10k, opts, false);
     const total = m.rows.find((r) => r.kind === 'total')!;
     expect(deltaOf(total, 'volume')).toBe(10_000);
-    expect(deltaOf(total, 'rostered')!).toBeGreaterThan(0);
+    expect(deltaOf(total, 'required')!).toBeGreaterThan(0);
   });
 
   it('site deltas add to subtotal and total deltas for every summed metric', () => {
@@ -44,7 +44,7 @@ describe('comparison', () => {
     ]);
     const mnl1 = m.rows[1]!;
     expect(mnl1.scen.atCap).toBe(true);
-    expect(deltaOf(mnl1, 'gap')!).toBeGreaterThan(50);
+    expect(deltaOf(mnl1, 'overUnder')!).toBeLessThan(-50);
   });
 
   it('with no overrides nothing has changed', () => {
@@ -56,7 +56,7 @@ describe('comparison', () => {
   it('a delta trace reproduces the delta and opens into both chains', () => {
     const m = buildCompare(basePlan, plus10k, opts, false);
     for (const row of m.rows.filter((r) => r.kind !== 'group')) {
-      for (const key of ['volume', 'rostered', 'closing', 'gap'] as const) {
+      for (const key of ['volume', 'required', 'planned', 'overUnder'] as const) {
         const t = deltaTrace(row, key, m, 'Scenario 1')!;
         const focus = t.steps.find((s) => s.key === t.focus)!;
         expect(focus.value).toBeCloseTo(deltaOf(row, key)!, 9);
@@ -68,7 +68,7 @@ describe('comparison', () => {
 
   it('summarises the horizon', () => {
     const s = horizonSummary(basePlan, plus10k);
-    expect(s.avgRostered[1]).toBeGreaterThan(s.avgRostered[0]);
+    expect(s.avgRequired[1]).toBeGreaterThan(s.avgRequired[0]);
     expect(s.starters[1]).toBeGreaterThan(s.starters[0]);
     const c = horizonSummary(basePlan, capMnl1);
     expect(c.capShortfallWeeks[1]).toBeGreaterThan(c.capShortfallWeeks[0]);

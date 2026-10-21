@@ -10,7 +10,7 @@ import { compareWorkbook, fileName, hiringWorkbook, planWorkbook, type ExportCon
 
 const ds = demoDataset();
 const basePlan = engine.computePlan(ds.plan);
-const opts = { week: 12, filters: ALL_FILTERS, grouping: 'vendor' as const };
+const opts = { week: 12, filters: ALL_FILTERS, grouping: 'outsourcer' as const };
 const ctx: ExportContext = { planName: 'FY27 Production Plan v3', scenarioName: null, context: 'Week 2027-W12', exportedOn: '2026-10-16' };
 const siteName = (id: string) => ds.plan.sites.find((s) => s.id === id)?.name ?? id;
 
@@ -69,11 +69,17 @@ describe('plan export', async () => {
     expect(ws.getCell('A5').value).toBe('SITE');
   });
 
+  it('states the Required FTE convention in the sheet header', () => {
+    expect(String(ws.getCell('A3').value)).toContain('Required FTE includes shrinkage');
+    expect(ws.getCell('G5').value).toBe('PRODUCTIVE FTE');
+    expect(ws.getCell('H5').value).toBe('REQUIRED FTE');
+  });
+
   it('freezes the site column and header rows', () => {
     expect(ws.views[0]).toMatchObject({ state: 'frozen', xSplit: 1, ySplit: 5 });
   });
 
-  it('writes vendor groups as collapsible outline levels', () => {
+  it('writes outsourcer groups as collapsible outline levels', () => {
     expect(ws.getCell('A6').value).toBe('Teleperformance');
     expect(ws.getRow(6).outlineLevel ?? 0).toBe(0);
     expect(ws.getRow(7).outlineLevel).toBe(1);
@@ -90,7 +96,7 @@ describe('plan export', async () => {
     const mnl1 = rows.find((r) => r.siteId === 'MNL1')!;
     const r = ws.getRow(6 + rows.indexOf(mnl1));
     expect(String(r.getCell(1).value)).toContain('Manila-1');
-    expect(r.getCell(8).value).toBe(Math.round(mnl1.cells.rostered! * 10) / 10);
+    expect(r.getCell(8).value).toBe(Math.round(mnl1.cells.required! * 10) / 10);
     expect(r.getCell(8).numFmt).toBe('#,##0.0');
     expect(r.getCell(5).numFmt).toBe('0.0%');
   });
@@ -116,7 +122,7 @@ describe('comparison export', async () => {
   };
   const scenPlan = engine.computePlan(applyScenario(ds.plan, scenario));
   const model = buildCompare(basePlan, scenPlan, opts, false);
-  const metrics = COMPARE_METRICS.filter((k) => ['volume', 'rostered', 'closing', 'gap'].includes(k));
+  const metrics = COMPARE_METRICS.filter((k) => ['volume', 'required', 'closing', 'overUnder'].includes(k));
   const wb = await roundTrip(
     compareWorkbook(ExcelJS, model, metrics, { ...ctx, scenarioName: 'Scenario 1' }, 'Compare 2027-W12', {
       scenario,
@@ -140,7 +146,7 @@ describe('comparison export', async () => {
     expectSubtotalsAddUp(ws);
     for (const [i, row] of model.rows.entries()) {
       if (row.kind === 'group') continue;
-      expect(num(ws.getCell(`G${6 + i}`))).toBeCloseTo(deltaOf(row, 'rostered')!, 9);
+      expect(num(ws.getCell(`G${6 + i}`))).toBeCloseTo(deltaOf(row, 'required')!, 9);
     }
   });
 

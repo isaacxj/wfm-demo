@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { TraceStep } from '../../engine/index.ts';
+import { REQUIRED_FTE_NOTE, type TraceStep } from '../../engine/index.ts';
 import { cellTrace, chainOf, membersOf, type CellTrace } from '../cellTrace.ts';
 import { copyText } from '../clipboard.ts';
 import { formatStep, type Formatted } from '../format.ts';
@@ -123,6 +123,7 @@ function CellDetail({ target, weekLabel, labelOfWeek }: DetailProps) {
           <span>{spec.header}</span>
           <span className={`insp-value ${shown.tone ?? ''}`}>{shown.text}</span>
         </div>
+        {spec.key === 'required' && <div className="insp-convention">{REQUIRED_FTE_NOTE}</div>}
         <div className="insp-tags">
           {side && <span className="tag side">{side}</span>}
           <span className="tag">{isInput ? 'Input' : row.kind === 'site' ? 'Computed' : 'Sum of sites'}</span>
@@ -221,6 +222,7 @@ function StepItem({ step, isFocus, depth, labelOfWeek }: { step: TraceStep; isFo
           {step.assumption && <span className="step-code">{step.assumption}</span>}
         </div>
       )}
+      {step.note && <div className="step-note">{step.note}</div>}
       {parts.length > 0 && (
         <>
           <button className="parts-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -309,7 +311,7 @@ function flagsFor(row: GridRow, members: readonly GridRow[], labelOfWeek: (i: nu
     notes.push({
       tag: 'SPLIT',
       tone: 'info',
-      text: `Supply allocated by this slice's ${oneFmt.format(row.slice.share * 100)}% share of site rostered FTE.`,
+      text: `Supply allocated by this slice's ${oneFmt.format(row.slice.share * 100)}% share of site required FTE.`,
     });
   }
   return notes;

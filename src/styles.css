@@ -23,7 +23,7 @@
   --font-num: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
 
   --band-divider: #2e4a7a;
-  --vendor-fill: #edf1f7;
+  --outsourcer-fill: #edf1f7;
   --row-h: 25px;
   --band-h: 19px;
   --head-h: 26px;
@@ -705,7 +705,7 @@ svg {
 }
 
 .grid tr.group td {
-  background: var(--vendor-fill);
+  background: var(--outsourcer-fill);
   font-weight: 700;
 }
 
@@ -1581,4 +1581,18 @@ tr.site .id-cell {
 .summary-strip .num {
   font-family: var(--font-num);
   font-size: 11px;
+}
+
+/* Conventions ---------------------------------------------------------- */
+
+.step-note,
+.insp-convention {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.insp-convention {
+  margin-top: 4px;
+  font-weight: 600;
 }

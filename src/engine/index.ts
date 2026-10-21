@@ -12,7 +12,7 @@ import { sliceSitePeriod, type SiteSlice } from './slice.ts';
 import {
   effectiveChatAht,
   periodRequirement,
-  rosteredFromProductive,
+  requiredFromProductive,
   type RequirementInput,
   type RequirementResult,
 } from './requirement.ts';
@@ -32,7 +32,7 @@ export interface CapacityEngine {
   periodRequirement(input: RequirementInput): RequirementResult;
   intervalStaffing(input: IntervalInput): IntervalResult;
   effectiveChatAht(aht: number, concurrency: number, efficiency?: number): number;
-  rosteredFromProductive(productiveFte: number, shrinkage: number): number;
+  requiredFromProductive(productiveFte: number, shrinkage: number): number;
   periodAttritionRate(monthlyRate: number, periodsPerMonth?: number): AttritionRateResult;
   rollForward(input: RollForwardInput): RollForwardResult;
   hiringNeed(input: HiringInput): HiringResult;
@@ -46,7 +46,7 @@ export const textbookEngine: CapacityEngine = {
   periodRequirement,
   intervalStaffing,
   effectiveChatAht,
-  rosteredFromProductive,
+  requiredFromProductive,
   periodAttritionRate: (monthlyRate, periodsPerMonth) => periodAttritionRate(monthlyRate, periodsPerMonth),
   rollForward,
   hiringNeed,
@@ -76,7 +76,7 @@ export type {
   SitePlan,
   UnitPeriod,
 } from './plan.ts';
-export { DEFAULT_CHAT_EFFICIENCY } from './requirement.ts';
+export { DEFAULT_CHAT_EFFICIENCY, REQUIRED_FTE_NOTE } from './requirement.ts';
 export { WEEKS_PER_MONTH } from './supply.ts';
 export { unitLabel } from './plan.ts';
 export { periodLabel, periodStart, isoWeekLabel, toIsoDate } from './calendar.ts';

@@ -3,22 +3,22 @@
  *
  *   attrition            = opening × period attrition rate
  *   HC before new class  = opening − attrition + committed hires + transfers in − transfers out
- *   deficit              = max(0, rostered required − HC before new class)
+ *   deficit              = max(0, required FTE − HC before new class)
  *   hireable deficit     = min(deficit, cap − HC before new class)
  *   hires to start       = ceil(hireable deficit ÷ (1 − training attrition))
  *   class start          = needed week − (training + nesting)
  *   graduates            = hires to start × (1 − training attrition)
  *   closing              = HC before new class + graduates
- *   gap                  = rostered required − closing
+ *   over/under           = closing − required FTE
  *
  * The class recommended for a week lands in that week and stays in supply, so
  * a deficit is hired for once, not again in every later week it persists.
  * Committed hires are classes already in training when the plan starts. A
  * deficit whose class would have to start before the horizon cannot be hired
  * for and remains as a lead-time shortfall. Demand above a contracted cap
- * remains as a cap shortfall. Both show in the residual gap.
+ * remains as a cap shortfall. Both show as a negative over/under.
  */
-import { assertFraction, assertNonNegative } from './requirement.ts';
+import { assertFraction, assertNonNegative, REQUIRED_FTE_NOTE } from './requirement.ts';
 import { periodAttritionRate } from './supply.ts';
 import { TraceBuilder, group, type Ref, type TraceStep } from './trace.ts';
 
@@ -33,7 +33,7 @@ export interface SiteWeekInput {
   transfersIn?: number;
   transfersOut?: number;
   cap: number | null;
-  rosteredRequired: number;
+  requiredFte: number;
   /** Index of this week in the horizon. */
   week: number;
   /** First week a new class can start. */
@@ -74,7 +74,7 @@ export interface SiteWeekResult {
   closing: number;
   cap: number | null;
   atCap: boolean;
-  rosteredRequired: number;
+  requiredFte: number;
   deficit: number;
   hireableDeficit: number;
   capShortfall: number;
@@ -86,8 +86,8 @@ export interface SiteWeekResult {
   startPeriod: number;
   /** False when the class would have to start before the first start week. */
   classPossible: boolean;
-  /** Rostered required − closing. Positive is a deficit, negative a surplus. */
-  gap: number;
+  /** Planned FTE (closing) − required FTE. Positive is over, negative is under. */
+  overUnder: number;
   trace: TraceStep[];
 }
 
@@ -96,7 +96,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
   const cap = input.cap;
   assertNonNegative('opening', input.opening);
   assertNonNegative('committedHires', input.committedHires);
-  assertNonNegative('rosteredRequired', input.rosteredRequired);
+  assertNonNegative('requiredFte', input.requiredFte);
   assertFraction('trainingAttrition', input.trainingAttrition, true);
   if (cap !== null) assertNonNegative('cap', cap);
 
@@ -148,13 +148,14 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
   );
 
   // Recommended class.
-  const required = t.input('rostered', 'Rostered FTE required', input.rosteredRequired, 'FTE');
+  const required = t.input('required', 'Required FTE', input.requiredFte, 'FTE');
+  t.note('required', REQUIRED_FTE_NOTE);
   const deficit = t.calc(
     'deficit',
     'Deficit before new class',
     Math.max(0, required.value - before.value),
     'FTE',
-    'max(0, rostered required − HC before new class)',
+    'max(0, required FTE − HC before new class)',
     `MAX(0,${group(required.expr)}-${group(before.expr)})`,
     [required, before],
   );
@@ -296,21 +297,21 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
   );
   const closing = t.calc(
     'closing',
-    'Closing HC',
+    'Planned FTE (closing HC)',
     before.value + graduates.value,
     'heads',
     'opening − attrition + hires productive + transfers in − transfers out',
     `${group(before.expr)}+${group(graduates.expr)}`,
     [before, graduates],
   );
-  const gap = t.calc(
-    'gap',
-    'Gap',
-    required.value - closing.value,
+  const overUnder = t.calc(
+    'overUnder',
+    'Over/Under',
+    closing.value - required.value,
     'FTE',
-    'rostered required − closing',
-    `${group(required.expr)}-${group(closing.expr)}`,
-    [required, closing],
+    'planned FTE − required FTE',
+    `${group(closing.expr)}-${group(required.expr)}`,
+    [closing, required],
   );
 
   return {
@@ -327,7 +328,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     closing: closing.value,
     cap,
     atCap: cap !== null && closing.value >= cap - EPS,
-    rosteredRequired: required.value,
+    requiredFte: required.value,
     deficit: deficit.value,
     hireableDeficit: hireable.value,
     capShortfall,
@@ -336,7 +337,7 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     leadWeeks: lead.value,
     startPeriod: start.value,
     classPossible,
-    gap: gap.value,
+    overUnder: overUnder.value,
     trace: t.steps,
   };
 }

@@ -54,7 +54,7 @@ function checkRows(rows: readonly GridRow[], label: string): void {
 describe('every grid number traces to its inputs', () => {
   it('unfiltered, weeks 1, 7, 12, 32 and 52, every grouping', () => {
     for (const week of [1, 7, 12, 32, 52]) {
-      for (const grouping of ['vendor', 'country', 'none'] as const) {
+      for (const grouping of ['outsourcer', 'country', 'none'] as const) {
         checkRows(buildRows(plan, { week, filters: ALL_FILTERS, grouping }), `W${week} ${grouping}`);
       }
     }
@@ -65,7 +65,19 @@ describe('every grid number traces to its inputs', () => {
       { ...ALL_FILTERS, channel: ['chat'] },
       { lob: ['Mobile'], language: ['EN', 'TL'], channel: ['voice', 'deferred'] },
     ];
-    for (const filters of cases) checkRows(buildRows(plan, { week: 32, filters, grouping: 'vendor' }), 'filtered');
+    for (const filters of cases) checkRows(buildRows(plan, { week: 32, filters, grouping: 'outsourcer' }), 'filtered');
+  });
+
+  it('states that Required FTE includes shrinkage wherever the step appears', () => {
+    const rows = buildRows(plan, { week: 12, filters: ALL_FILTERS, grouping: 'outsourcer' });
+    const site = rows.find((r) => r.kind === 'site')!;
+    const ct = cellTrace(site, 'required')!;
+    const step = ct.steps.find((s) => s.key === ct.focus)!;
+    expect(step.label).toBe('Required FTE (Σ 12 units)');
+    expect(step.note).toBe('Required FTE includes shrinkage.');
+    for (const part of step.parts ?? []) expect(part.steps.find((s) => s.key === 'required')?.note).toBe('Required FTE includes shrinkage.');
+    const flow = chainOf(site.slice!.siteTrace, 'flow.overUnder').find((s) => s.key === 'flow.required');
+    expect(flow?.note).toBe('Required FTE includes shrinkage.');
   });
 
   it('opening headcount links back to the prior week', () => {
@@ -75,11 +87,11 @@ describe('every grid number traces to its inputs', () => {
     expect(opening.parts?.[0]?.steps).toBe(plan.sites[0]!.periods[10]!.trace);
   });
 
-  it('the chain for a gap ends on the gap and includes the attrition rate', () => {
+  it('the chain for Over/Under ends on it and includes the attrition rate', () => {
     const p = plan.sites[0]!.periods[31]!;
-    const keys = chainOf(p.trace, 'flow.gap').map((s) => s.key);
-    expect(keys.at(-1)).toBe('flow.gap');
+    const keys = chainOf(p.trace, 'flow.overUnder').map((s) => s.key);
+    expect(keys.at(-1)).toBe('flow.overUnder');
     expect(keys).toContain('flow.attr.periodAttrition');
-    expect(keys).toContain('rostered');
+    expect(keys).toContain('required');
   });
 });

@@ -46,9 +46,9 @@ export function formatValue(value: number | null | undefined, format: Format): F
     case 'pct':
       return { text: oneFmt.format(shown), tone: undefined };
     case 'signed': {
-      // Gap: positive is a deficit, negative a surplus.
+      // Over/Under: positive is over (a surplus), negative is under (a deficit).
       const body = oneFmt.format(Math.abs(shown));
-      return value > 0 ? { text: `+${body}`, tone: 'neg' } : { text: `${MINUS}${body}`, tone: 'pos' };
+      return value > 0 ? { text: `+${body}`, tone: 'pos' } : { text: `${MINUS}${body}`, tone: 'neg' };
     }
   }
 }
@@ -113,8 +113,8 @@ export function formatStep(value: number, unit: string, weekLabel: (index: numbe
 }
 
 /**
- * A change between two values. Always signed. Only the gap is coloured: a
- * larger gap is a worse position, a smaller one a better one.
+ * A change between two values. Always signed. Only Over/Under is coloured: a
+ * rise moves a site towards over (better), a fall towards under (worse).
  */
 export function formatDelta(value: number | null | undefined, format: Format, colour: boolean): Formatted {
   if (value === null || value === undefined || Number.isNaN(value)) return NOT_APPLICABLE;
@@ -126,6 +126,6 @@ export function formatDelta(value: number | null | undefined, format: Format, co
   const rounded = Math.round(Math.abs(shown) * scale) / scale;
   if (rounded === 0) return { text: zeroText, tone: undefined };
   const body = (decimals === 0 ? intFmt : oneFmt).format(rounded);
-  const tone: Tone = colour ? (value > 0 ? 'neg' : 'pos') : undefined;
+  const tone: Tone = colour ? (value > 0 ? 'pos' : 'neg') : undefined;
   return { text: `${value > 0 ? '+' : MINUS}${body}`, tone };
 }

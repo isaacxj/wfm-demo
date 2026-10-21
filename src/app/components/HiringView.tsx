@@ -27,9 +27,9 @@ interface HiringViewProps {
   hp: HiringPlan;
   scenarioName: string | null;
   trainingAttrition: number;
-  vendors: readonly string[];
-  vendorFilter: ReadonlySet<string>;
-  onVendorFilter: (v: ReadonlySet<string>) => void;
+  outsourcers: readonly string[];
+  outsourcerFilter: ReadonlySet<string>;
+  onOutsourcerFilter: (v: ReadonlySet<string>) => void;
   grouping: HiringGrouping;
   onGrouping: (g: HiringGrouping) => void;
   selected: HiringRef | null;
@@ -42,7 +42,7 @@ const dayFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeri
 const day = (iso: string) => dayFmt.format(new Date(`${iso}T00:00:00Z`)).replace(',', '');
 
 interface ColDef {
-  key: HiringKey | 'id' | 'vendor' | 'driver';
+  key: HiringKey | 'id' | 'outsourcer' | 'driver';
   header: string;
   group: string;
   width: number;
@@ -51,7 +51,7 @@ interface ColDef {
 
 const COLS: readonly ColDef[] = [
   { key: 'id', header: 'Site', group: 'identity', width: 230, text: true },
-  { key: 'vendor', header: 'Vendor', group: 'Class', width: 150, text: true },
+  { key: 'outsourcer', header: 'Outsourcer', group: 'Class', width: 150, text: true },
   { key: 'starters', header: 'Starters', group: 'Class', width: 76 },
   { key: 'graduates', header: 'Graduates', group: 'Class', width: 84 },
   { key: 'start', header: 'Start', group: 'Schedule', width: 96 },
@@ -80,11 +80,11 @@ function buildRows(hp: HiringPlan, grouping: HiringGrouping): HRow[] {
     }
   } else {
     const sites = [...new Set(hp.classes.map((c) => c.siteId))];
-    const order = hp.classes.slice().sort((a, b) => a.vendor.localeCompare(b.vendor) || a.siteName.localeCompare(b.siteName));
+    const order = hp.classes.slice().sort((a, b) => a.outsourcer.localeCompare(b.outsourcer) || a.siteName.localeCompare(b.siteName));
     for (const siteId of [...new Set(order.map((c) => c.siteId))].filter((s) => sites.includes(s))) {
       const cs = hp.classes.filter((c) => c.siteId === siteId);
       const first = cs[0]!;
-      rows.push({ id: `g:${siteId}`, kind: 'group', label: first.siteName, sub: `${siteId} · ${first.vendor}` });
+      rows.push({ id: `g:${siteId}`, kind: 'group', label: first.siteName, sub: `${siteId} · ${first.outsourcer}` });
       for (const c of cs) rows.push({ id: c.id, kind: 'site', label: c.startLabel, sub: day(c.startDate), cls: c });
       rows.push({
         id: `t:${siteId}`,
@@ -113,8 +113,8 @@ function cell(row: HRow, key: ColDef['key']): Formatted {
       return formatValue(c?.graduates ?? s?.graduates ?? null, 'one');
     case 'deficit':
       return formatValue(c?.deficit ?? s?.deficit ?? null, 'one');
-    case 'vendor':
-      return text(c?.vendor ?? '');
+    case 'outsourcer':
+      return text(c?.outsourcer ?? '');
     case 'start':
       return c ? text(day(c.startDate)) : text('');
     case 'training':
@@ -131,7 +131,7 @@ function cell(row: HRow, key: ColDef['key']): Formatted {
 }
 
 export function HiringView(props: HiringViewProps) {
-  const { hp, scenarioName, trainingAttrition, vendors, vendorFilter, onVendorFilter, grouping, onGrouping, selected, onSelect } = props;
+  const { hp, scenarioName, trainingAttrition, outsourcers, outsourcerFilter, onOutsourcerFilter, grouping, onGrouping, selected, onSelect } = props;
   const rows = useMemo(() => buildRows(hp, grouping), [hp, grouping]);
   const totals = sumClasses(hp.classes);
   const busiest = hp.byWeek.reduce<{ label: string; n: number } | null>((best, g) => {
@@ -158,7 +158,7 @@ export function HiringView(props: HiringViewProps) {
   const leaves = table.getVisibleLeafColumns();
   const width = leaves.reduce((s, c) => s + c.getSize(), 0);
   const [bandRow, headRow] = table.getHeaderGroups();
-  const allVendors = vendorFilter.size === vendors.length;
+  const allOutsourcers = outsourcerFilter.size === outsourcers.length;
 
   return (
     <>
@@ -219,14 +219,14 @@ export function HiringView(props: HiringViewProps) {
           <Menu
             trigger={(p) => (
               <button className="tl-button" {...p}>
-                <span className="tl-key">Vendor</span> {allVendors ? 'All' : [...vendorFilter].join(', ')} <Caret />
+                <span className="tl-key">Outsourcer</span> {allOutsourcers ? 'All' : [...outsourcerFilter].join(', ')} <Caret />
               </button>
             )}
           >
             {() => (
               <>
-                {vendors.map((v) => {
-                  const on = vendorFilter.has(v);
+                {outsourcers.map((v) => {
+                  const on = outsourcerFilter.has(v);
                   return (
                     <button
                       key={v}
@@ -234,10 +234,10 @@ export function HiringView(props: HiringViewProps) {
                       role="menuitemcheckbox"
                       aria-checked={on}
                       onClick={() => {
-                        const next = new Set(vendorFilter);
+                        const next = new Set(outsourcerFilter);
                         if (on) next.delete(v);
                         else next.add(v);
-                        if (next.size > 0) onVendorFilter(next);
+                        if (next.size > 0) onOutsourcerFilter(next);
                       }}
                     >
                       <span className={`check ${on ? 'on' : ''}`}>{on && <Check />}</span>
@@ -246,8 +246,8 @@ export function HiringView(props: HiringViewProps) {
                   );
                 })}
                 <div className="menu-foot">
-                  <button onClick={() => onVendorFilter(new Set(vendors))} disabled={allVendors}>
-                    All vendors
+                  <button onClick={() => onOutsourcerFilter(new Set(outsourcers))} disabled={allOutsourcers}>
+                    All outsourcers
                   </button>
                 </div>
               </>
@@ -260,7 +260,7 @@ export function HiringView(props: HiringViewProps) {
 
       <div className="grid-scroll">
         {rows.length === 0 ? (
-          <div className="grid-empty">No classes are needed for the selected vendors.</div>
+          <div className="grid-empty">No classes are needed for the selected outsourcers.</div>
         ) : (
           <table className="grid hiring" style={{ width }}>
             <colgroup>
@@ -347,7 +347,7 @@ function Stat({ label, value, strong }: { label: string; value: string; strong?:
 }
 
 const ACTION: Readonly<Record<Exception['kind'], string>> = {
-  lead: 'Cover with overtime, transfers or vendor surge',
+  lead: 'Cover with overtime, transfers or outsourcer surge',
   cap: 'Raise the contracted cap or move volume to another site',
 };
 
@@ -387,7 +387,7 @@ function Exceptions({ exceptions }: { exceptions: readonly Exception[] }) {
         </tr>
         <tr className="head">
           <th className="id">Site</th>
-          <th className="text">Vendor</th>
+          <th className="text">Outsourcer</th>
           <th className="text">Reason</th>
           <th className="text">Weeks</th>
           <th>Peak FTE</th>
@@ -404,7 +404,7 @@ function Exceptions({ exceptions }: { exceptions: readonly Exception[] }) {
                 {e.kind === 'cap' && <span className="flag-cap">CAP</span>}
               </div>
             </td>
-            <td className="text">{e.vendor}</td>
+            <td className="text">{e.outsourcer}</td>
             <td className="text">{e.kind === 'lead' ? 'Inside training lead time' : 'Above contracted cap'}</td>
             <td className="text">{weeks(e.weeks)}</td>
             <td>{one.format(e.peakFte)}</td>

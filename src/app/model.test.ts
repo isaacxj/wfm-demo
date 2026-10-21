@@ -27,8 +27,8 @@ function expectReconciles(rows: readonly GridRow[]): void {
 }
 
 describe('row model', () => {
-  it('orders vendor header, sites, subtotal per vendor, then the grand total', () => {
-    const rows = buildRows(plan, { week: 12, filters: ALL_FILTERS, grouping: 'vendor' });
+  it('orders outsourcer header, sites, subtotal per outsourcer, then the grand total', () => {
+    const rows = buildRows(plan, { week: 12, filters: ALL_FILTERS, grouping: 'outsourcer' });
     expect(rows.map((r) => `${r.kind}:${r.label}`)).toEqual([
       'group:Teleperformance',
       'site:Manila-1',
@@ -51,7 +51,7 @@ describe('row model', () => {
   });
 
   it('reconciles displayed digits across site, subtotal and total rows in every week and grouping', () => {
-    for (const grouping of ['vendor', 'country', 'none'] as Grouping[]) {
+    for (const grouping of ['outsourcer', 'country', 'none'] as Grouping[]) {
       for (let week = 1; week <= 52; week++) {
         expectReconciles(buildRows(plan, { week, filters: ALL_FILTERS, grouping }));
       }
@@ -66,30 +66,30 @@ describe('row model', () => {
       { lob: ['Internet'], language: ['EN', 'FR'], channel: ['voice'] },
     ];
     for (const filters of cases) {
-      for (const week of [1, 12, 32, 52]) expectReconciles(buildRows(plan, { week, filters, grouping: 'vendor' }));
+      for (const week of [1, 12, 32, 52]) expectReconciles(buildRows(plan, { week, filters, grouping: 'outsourcer' }));
     }
   });
 
   it('changing week changes volume and headcount', () => {
-    const at = (week: number) => buildRows(plan, { week, filters: ALL_FILTERS, grouping: 'vendor' }).at(-1)!;
+    const at = (week: number) => buildRows(plan, { week, filters: ALL_FILTERS, grouping: 'outsourcer' }).at(-1)!;
     expect(at(12).cells.volume).not.toBe(at(13).cells.volume);
-    expect(at(12).cells.closing).not.toBe(at(13).cells.closing);
+    expect(at(12).cells.planned).not.toBe(at(13).cells.planned);
   });
 
   it('drops sites and groups with no matching planning units', () => {
-    const rows = buildRows(plan, { week: 12, filters: { ...ALL_FILTERS, language: ['TL'] }, grouping: 'vendor' });
+    const rows = buildRows(plan, { week: 12, filters: { ...ALL_FILTERS, language: ['TL'] }, grouping: 'outsourcer' });
     expect(rows.filter((r) => r.kind === 'site').map((r) => r.siteId)).toEqual(['MNL1', 'MNL2']);
     expect(rows.filter((r) => r.kind === 'group').map((r) => r.label)).toEqual(['Teleperformance']);
   });
 
   it('flags Manila-1 at its cap', () => {
-    const rows = buildRows(plan, { week: 32, filters: ALL_FILTERS, grouping: 'vendor' });
+    const rows = buildRows(plan, { week: 32, filters: ALL_FILTERS, grouping: 'outsourcer' });
     expect(rows.find((r) => r.siteId === 'MNL1')?.atCap).toBe(true);
   });
 
   it('marks planner inputs on site rows only, opening HC only in week 1', () => {
-    const w1 = buildRows(plan, { week: 1, filters: ALL_FILTERS, grouping: 'vendor' });
-    const w2 = buildRows(plan, { week: 2, filters: ALL_FILTERS, grouping: 'vendor' });
+    const w1 = buildRows(plan, { week: 1, filters: ALL_FILTERS, grouping: 'outsourcer' });
+    const w2 = buildRows(plan, { week: 2, filters: ALL_FILTERS, grouping: 'outsourcer' });
     const site = (rows: GridRow[]) => rows.find((r) => r.kind === 'site')!;
     expect([...site(w1).inputs].sort()).toEqual(['aht', 'occ', 'opening', 'shrink', 'volume']);
     expect(site(w2).inputs.has('opening')).toBe(false);
@@ -103,9 +103,9 @@ describe('formatting', () => {
     expect(formatValue(1015.07, 'one').text).toBe('1,015.1');
   });
 
-  it('signs the gap, deficit negative tone, surplus positive tone', () => {
-    expect(formatValue(12.44, 'signed')).toEqual({ text: '+12.4', tone: 'neg' });
-    expect(formatValue(-8.06, 'signed')).toEqual({ text: '−8.1', tone: 'pos' });
+  it('signs Over/Under the industry way: over positive in --pos, under negative in --neg', () => {
+    expect(formatValue(12.44, 'signed')).toEqual({ text: '+12.4', tone: 'pos' });
+    expect(formatValue(-8.06, 'signed')).toEqual({ text: '−8.1', tone: 'neg' });
   });
 
   it('renders true zero muted and not applicable as an en dash', () => {

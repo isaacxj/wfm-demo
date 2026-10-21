@@ -24,13 +24,13 @@ const WIDTHS: Readonly<Partial<Record<NumericKey, [number, number]>>> = {
   aht: [54, 50],
   workload: [84, 74],
   shrink: [58, 54],
-  required: [72, 64],
-  rostered: [74, 66],
+  productive: [72, 64],
+  required: [74, 66],
   opening: [64, 56],
   attrition: [60, 54],
   hires: [60, 54],
-  closing: [64, 58],
-  gap: [66, 62],
+  planned: [64, 58],
+  overUnder: [66, 62],
   hireNeed: [58, 54],
 };
 
@@ -125,7 +125,7 @@ export function CompareGrid({ rows, metrics, grouping, scenarioName, selected, o
                 const format = spec.format ?? 'one';
                 const f =
                   side === 'delta'
-                    ? formatDelta(deltaOf(row, metric), format, metric === 'gap')
+                    ? formatDelta(deltaOf(row, metric), format, metric === 'overUnder')
                     : formatValue((side === 'base' ? row.base : row.scen).cells[metric], format);
                 const isSel = selected?.rowId === row.id && selected.key === metric && selected.side === side;
                 const cls = [

@@ -1,16 +1,17 @@
 /**
- * A filtered slice of one site-week: the planning units matching a line of
- * business, language or channel filter.
+ * A filtered slice of one site-week: the planning units matching a business
+ * unit, language or channel filter.
  *
  * Demand sums over the matching units. Supply exists per site, not per unit,
- * so it is allocated to the slice by its share of the site's rostered FTE:
+ * so it is allocated to the slice by its share of the site's required FTE:
  *
- *   share           = slice rostered FTE ÷ site rostered FTE
+ *   share           = slice required FTE ÷ site required FTE
  *   allocated value = site value × share
  *
  * With every unit included the slice is the site row and nothing is allocated.
  */
 import { rollUpDemand, type PlanningUnit, type SitePeriod } from './plan.ts';
+import { REQUIRED_FTE_NOTE } from './requirement.ts';
 import { TraceBuilder, group, type TraceStep } from './trace.ts';
 
 export interface SiteSlice {
@@ -24,13 +25,14 @@ export interface SiteSlice {
   workloadHours: number;
   occupancyCeiling: number;
   shrinkage: number;
+  productiveFte: number;
   requiredFte: number;
-  rosteredFte: number;
   opening: number;
   attrition: number;
   hiresProductive: number;
   closing: number;
-  gap: number;
+  /** Planned FTE − required FTE. Positive is over, negative is under. */
+  overUnder: number;
   hiresToStart: number;
   classStartLabel: string | null;
   atCap: boolean;
@@ -64,13 +66,13 @@ export function sliceSitePeriod(p: SitePeriod, include: (u: PlanningUnit) => boo
       volume: p.volume,
       aht: p.aht,
       workloadHours: p.workloadHours,
+      productiveFte: p.productiveFte,
       requiredFte: p.requiredFte,
-      rosteredFte: p.rosteredFte,
       opening: f.opening,
       attrition: f.attrition,
       hiresProductive: f.hiresProductive,
       closing: f.closing,
-      gap: f.gap,
+      overUnder: f.overUnder,
       hiresToStart: f.hiresToStart,
       capShortfall: f.capShortfall,
       leadTimeShortfall: f.leadTimeShortfall,
@@ -80,16 +82,17 @@ export function sliceSitePeriod(p: SitePeriod, include: (u: PlanningUnit) => boo
 
   const t = new TraceBuilder();
   const d = rollUpDemand(t, units);
-  const siteRostered = t.input('siteRostered', 'Site rostered FTE (all units)', p.rosteredFte, 'FTE');
-  t.attach('siteRostered', [{ id: p.siteId, label: `Site ${p.weekLabel}`, steps: p.trace, focus: 'rostered' }]);
+  const siteRequired = t.input('siteRequired', 'Site required FTE (all units)', p.requiredFte, 'FTE');
+  t.note('siteRequired', REQUIRED_FTE_NOTE);
+  t.attach('siteRequired', [{ id: p.siteId, label: `Site ${p.weekLabel}`, steps: p.trace, focus: 'required' }]);
   const share = t.calc(
     'share',
     'Share of site requirement',
-    siteRostered.value === 0 ? 0 : d.rostered.value / siteRostered.value,
+    siteRequired.value === 0 ? 0 : d.required.value / siteRequired.value,
     'ratio',
-    'slice rostered FTE ÷ site rostered FTE',
-    siteRostered.value === 0 ? '0' : `${group(d.rostered.expr)}/${siteRostered.expr}`,
-    [d.rostered, siteRostered],
+    'slice required FTE ÷ site required FTE',
+    siteRequired.value === 0 ? '0' : `${group(d.required.expr)}/${siteRequired.expr}`,
+    [d.required, siteRequired],
   );
   const alloc = (key: string, label: string, siteValue: number, unit: 'heads' | 'FTE') => {
     const lower = lowerFirst(label);
@@ -100,16 +103,16 @@ export function sliceSitePeriod(p: SitePeriod, include: (u: PlanningUnit) => boo
   const opening = alloc('opening', 'Opening HC', f.opening, 'heads').value;
   const attrition = alloc('attrition', 'Attrition', f.attrition, 'heads').value;
   const hires = alloc('hiresProductive', 'Hires productive', f.hiresProductive, 'heads').value;
-  const closingRef = alloc('closing', 'Closing HC', f.closing, 'heads');
+  const closingRef = alloc('closing', 'Planned FTE', f.closing, 'heads');
   const closing = closingRef.value;
-  const gap = t.calc(
-    'gap',
-    'Gap',
-    d.rostered.value - closing,
+  const overUnder = t.calc(
+    'overUnder',
+    'Over/Under',
+    closing - d.required.value,
     'FTE',
-    'slice rostered FTE − allocated closing',
-    `${group(d.rostered.expr)}-${group(closingRef.expr)}`,
-    [d.rostered, closingRef],
+    'allocated planned FTE − slice required FTE',
+    `${group(closingRef.expr)}-${group(d.required.expr)}`,
+    [closingRef, d.required],
   ).value;
   const starters = alloc('hiresToStart', 'Hires to start', f.hiresToStart, 'heads').value;
 
@@ -120,13 +123,13 @@ export function sliceSitePeriod(p: SitePeriod, include: (u: PlanningUnit) => boo
     volume: d.volume.value,
     aht: d.aht.value,
     workloadHours: d.workload.value,
+    productiveFte: d.productive.value,
     requiredFte: d.required.value,
-    rosteredFte: d.rostered.value,
     opening,
     attrition,
     hiresProductive: hires,
     closing,
-    gap,
+    overUnder,
     hiresToStart: starters,
     capShortfall: f.capShortfall * share.value,
     leadTimeShortfall: f.leadTimeShortfall * share.value,

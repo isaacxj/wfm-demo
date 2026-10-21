@@ -47,6 +47,8 @@ export interface TraceStep {
   deps?: string[];
   /** Sub-chains summed or carried into this step, each with its own trace. */
   parts?: TracePart[];
+  /** A convention the reader must know to read the value, stated in words. */
+  note?: string;
 }
 
 /** A recorded step: its key, value and the Excel expression that reproduces it. */
@@ -96,6 +98,11 @@ export class TraceBuilder {
     s.deps = [...(s.deps ?? []), ...deps.map((d) => d.key)];
   }
 
+  /** State a convention beside a recorded step. */
+  note(key: string, text: string): void {
+    findStep(this.steps, key).note = text;
+  }
+
   /** Attach the sub-chains a step was built from. */
   attach(key: string, parts: TracePart[]): void {
     findStep(this.steps, key).parts = parts;
@@ -111,6 +118,7 @@ export class TraceBuilder {
     if (step.excel !== undefined) clean.excel = step.excel;
     if (step.deps !== undefined && step.deps.length > 0) clean.deps = step.deps;
     if (step.parts !== undefined) clean.parts = step.parts;
+    if (step.note !== undefined) clean.note = step.note;
     this.steps.push(clean);
   }
 }

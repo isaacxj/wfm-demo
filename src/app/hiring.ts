@@ -11,7 +11,7 @@ export interface HiringClass {
   id: string;
   siteId: string;
   siteName: string;
-  vendor: string;
+  outsourcer: string;
   country: string;
   /** Week the class starts training. */
   startWeek: number;
@@ -43,7 +43,7 @@ export interface WeekGroup {
 export interface Exception {
   siteId: string;
   siteName: string;
-  vendor: string;
+  outsourcer: string;
   kind: 'lead' | 'cap';
   weeks: number[];
   peakFte: number;
@@ -68,7 +68,7 @@ export function buildHiringPlan(
   plan: PlanResult,
   constants: { trainingWeeks: number; nestingWeeks: number; minClassSize: number },
   isoYear: number,
-  vendors?: ReadonlySet<string>,
+  outsourcers?: ReadonlySet<string>,
 ): HiringPlan {
   const { trainingWeeks, nestingWeeks } = constants;
   const classes: HiringClass[] = [];
@@ -76,7 +76,7 @@ export function buildHiringPlan(
 
   for (const sp of plan.sites) {
     const site = sp.site;
-    if (vendors && !vendors.has(site.vendor)) continue;
+    if (outsourcers && !outsourcers.has(site.outsourcer)) continue;
     sp.periods.forEach((p, i) => {
       const f = p.flow;
       if (f.hiresToStart <= 0) return;
@@ -86,7 +86,7 @@ export function buildHiringPlan(
         id: `${site.id}:${start}`,
         siteId: site.id,
         siteName: site.name,
-        vendor: site.vendor,
+        outsourcer: site.outsourcer,
         country: site.country,
         startWeek: start,
         startLabel: periodLabel(isoYear, start),
@@ -112,7 +112,7 @@ export function buildHiringPlan(
       exceptions.push({
         siteId: site.id,
         siteName: site.name,
-        vendor: site.vendor,
+        outsourcer: site.outsourcer,
         kind,
         weeks: hits.map((p) => p.week),
         peakFte: kind === 'lead' ? peak.flow.leadTimeShortfall : peak.flow.capShortfall,
@@ -121,7 +121,7 @@ export function buildHiringPlan(
     }
   }
 
-  classes.sort((a, b) => a.startWeek - b.startWeek || a.vendor.localeCompare(b.vendor) || a.siteName.localeCompare(b.siteName));
+  classes.sort((a, b) => a.startWeek - b.startWeek || a.outsourcer.localeCompare(b.outsourcer) || a.siteName.localeCompare(b.siteName));
   const byWeek: WeekGroup[] = [];
   for (const c of classes) {
     let g = byWeek.at(-1);
@@ -140,7 +140,7 @@ function stepValue(p: SitePeriod, key: string): number | undefined {
 
 /** Why the class is needed: demand rising faster than attrition, or attrition backfill. */
 function driverOf(p: SitePeriod, prior: SitePeriod | undefined): string {
-  const growth = prior ? p.rosteredFte - prior.rosteredFte : 0;
+  const growth = prior ? p.requiredFte - prior.requiredFte : 0;
   if (p.flow.capShortfall > 0.05) return 'Backfill to cap';
   if (growth > p.flow.attrition) return `Demand +${one.format(growth)} FTE`;
   return `Attrition backfill`;

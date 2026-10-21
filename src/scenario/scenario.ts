@@ -12,7 +12,7 @@ import type { DemandCell, PlanInput, SiteInput } from '../engine/index.ts';
 export type OverrideKind = 'volume' | 'aht' | 'shrinkage' | 'attrition' | 'cap';
 
 /** Which sites an override touches. */
-export type Scope = { type: 'all' } | { type: 'vendor'; vendor: string } | { type: 'site'; siteId: string };
+export type Scope = { type: 'all' } | { type: 'outsourcer'; outsourcer: string } | { type: 'site'; siteId: string };
 
 interface Base {
   /** Stable code, e.g. "SC1.OV2". Appears in assumption records. */
@@ -68,12 +68,12 @@ export interface Scenario {
   overrides: Override[];
 }
 
-export function siteInScope(site: Pick<SiteInput, 'id' | 'vendor'>, scope: Scope): boolean {
+export function siteInScope(site: Pick<SiteInput, 'id' | 'outsourcer'>, scope: Scope): boolean {
   switch (scope.type) {
     case 'all':
       return true;
-    case 'vendor':
-      return site.vendor === scope.vendor;
+    case 'outsourcer':
+      return site.outsourcer === scope.outsourcer;
     case 'site':
       return site.id === scope.siteId;
   }
@@ -192,8 +192,8 @@ export function describeScope(scope: Scope, siteName: (id: string) => string): s
   switch (scope.type) {
     case 'all':
       return 'All sites';
-    case 'vendor':
-      return scope.vendor;
+    case 'outsourcer':
+      return scope.outsourcer;
     case 'site':
       return siteName(scope.siteId);
   }
@@ -223,4 +223,51 @@ export function describeChange(o: Override): string {
 
 export function describeWhen(o: Override, horizon: number): string {
   return o.kind === 'volume' || o.kind === 'aht' ? weeksText(o.fromWeek, o.toWeek, horizon) : 'all weeks';
+}
+
+// Stored scenarios ----------------------------------------------------------------
+
+/**
+ * Reads scenarios kept in browser storage. Entries saved before the outsourcer
+ * rename, scoped { type: 'vendor', vendor }, are migrated; anything else that
+ * does not parse is dropped silently rather than breaking the app.
+ */
+export function parseStoredScenarios(raw: string): Scenario[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(value)) return [];
+  const out: Scenario[] = [];
+  for (const item of value) {
+    const s = item as Partial<Scenario> | null;
+    if (!s || typeof s.id !== 'string' || typeof s.code !== 'string' || typeof s.name !== 'string' || !Array.isArray(s.overrides)) continue;
+    const overrides = s.overrides.map(migrateOverride).filter((o): o is Override => o !== null);
+    if (overrides.length !== s.overrides.length) continue;
+    out.push({ id: s.id, code: s.code, name: s.name, forkedFrom: typeof s.forkedFrom === 'string' ? s.forkedFrom : '', overrides });
+  }
+  return out;
+}
+
+const KINDS: readonly OverrideKind[] = ['volume', 'aht', 'shrinkage', 'attrition', 'cap'];
+
+function migrateOverride(raw: unknown): Override | null {
+  const o = raw as Record<string, unknown> | null;
+  if (!o || typeof o.code !== 'string' || !KINDS.includes(o.kind as OverrideKind)) return null;
+  const scope = migrateScope(o.scope);
+  if (!scope) return null;
+  return { ...(o as unknown as Override), scope } as Override;
+}
+
+function migrateScope(raw: unknown): Scope | null {
+  const s = raw as Record<string, unknown> | null;
+  if (!s || typeof s.type !== 'string') return null;
+  if (s.type === 'all') return { type: 'all' };
+  if (s.type === 'site' && typeof s.siteId === 'string') return { type: 'site', siteId: s.siteId };
+  if (s.type === 'outsourcer' && typeof s.outsourcer === 'string') return { type: 'outsourcer', outsourcer: s.outsourcer };
+  // Saved before the rename.
+  if (s.type === 'vendor' && typeof s.vendor === 'string') return { type: 'outsourcer', outsourcer: s.vendor };
+  return null;
 }

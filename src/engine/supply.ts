@@ -4,7 +4,7 @@
  *   period attrition rate = 1 − (1 − monthly rate)^(1 ÷ periods per month)
  *   attrition             = opening × period rate
  *   closing               = opening − attrition + hires productive + transfers in − transfers out
- *   gap                   = rostered required − closing
+ *   gap                   = required FTE − closing
  *   hires to start        = ceil(gap ÷ (1 − training attrition))
  *   start period          = needed period − (training weeks + nesting weeks)
  *
@@ -12,7 +12,7 @@
  * it, and limits the hire need to the headroom under it. Demand above the cap
  * surfaces as a cap shortfall rather than a hire.
  */
-import { assertFraction, assertNonNegative } from './requirement.ts';
+import { assertFraction, assertNonNegative, REQUIRED_FTE_NOTE } from './requirement.ts';
 import { TraceBuilder, group, type TraceStep } from './trace.ts';
 
 /** Weeks per month. Dividing a monthly rate by four compounds wrongly. */
@@ -158,7 +158,7 @@ export function rollForward(input: RollForwardInput): RollForwardResult {
 }
 
 export interface HiringInput {
-  rosteredRequired: number;
+  requiredFte: number;
   closing: number;
   /** Index of the period the heads are needed in. */
   neededPeriod: number;
@@ -167,7 +167,7 @@ export interface HiringInput {
   nestingWeeks: number;
   cap?: number | null;
   codes?: {
-    rosteredRequired?: string;
+    requiredFte?: string;
     closing?: string;
     trainingAttrition?: string;
     trainingWeeks?: string;
@@ -198,14 +198,15 @@ export function hiringNeed(input: HiringInput): HiringResult {
   assertNonNegative('nestingWeeks', input.nestingWeeks);
 
   const t = new TraceBuilder();
-  const req = t.input('rostered', 'Rostered FTE required', input.rosteredRequired, 'FTE', codes.rosteredRequired);
+  const req = t.input('required', 'Required FTE', input.requiredFte, 'FTE', codes.requiredFte);
+  t.note('required', REQUIRED_FTE_NOTE);
   const closing = t.input('closing', 'Closing HC', input.closing, 'heads', codes.closing);
   const gap = t.calc(
     'gap',
     'Gap',
     req.value - closing.value,
     'FTE',
-    'rostered required − closing',
+    'required FTE − closing',
     `${group(req.expr)}-${group(closing.expr)}`,
     [req, closing],
   );

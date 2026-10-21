@@ -32,7 +32,7 @@ const ARGB = {
   ink400: 'FF7C8796',
   surface1: 'FFF7F9FC',
   surface2: 'FFEEF2F7',
-  vendor: 'FFEDF1F7',
+  outsourcer: 'FFEDF1F7',
   line1: 'FFE7ECF2',
   line2: 'FFD4DBE4',
   white: 'FFFFFFFF',
@@ -86,7 +86,7 @@ interface Row {
 export interface ExportContext {
   planName: string;
   scenarioName: string | null;
-  /** e.g. "Week 2027-W12 (from Mon 22 Mar 2027) · grouped by vendor · all lines of business, languages and channels" */
+  /** e.g. "Week 2027-W12 (from Mon 22 Mar 2027) · grouped by outsourcer · all business units, languages and channels" */
   context: string;
   exportedOn: string;
 }
@@ -103,7 +103,18 @@ function newWorkbook(lib: Lib, ctx: ExportContext): ExcelJS.Workbook {
   return wb;
 }
 
-function addSheet(wb: ExcelJS.Workbook, name: string, title: string, context: string, cols: readonly Col[]): ExcelJS.Worksheet {
+/** Printed under the title of every sheet that carries Required FTE. */
+export const CONVENTIONS =
+  'Required FTE includes shrinkage; Productive FTE excludes it. Over/Under = Planned FTE − Required FTE: positive is over, negative is under.';
+
+function addSheet(
+  wb: ExcelJS.Workbook,
+  name: string,
+  title: string,
+  context: string,
+  cols: readonly Col[],
+  convention?: string,
+): ExcelJS.Worksheet {
   const ws = wb.addWorksheet(name, {
     views: [{ state: 'frozen', xSplit: 1, ySplit: 5, showGridLines: false }],
     properties: { defaultRowHeight: 18.75, outlineProperties: { summaryBelow: true, summaryRight: true } },
@@ -116,6 +127,11 @@ function addSheet(wb: ExcelJS.Workbook, name: string, title: string, context: st
   const c = ws.getCell(2, 1);
   c.value = context;
   c.font = { name: UI, size: 9, color: { argb: ARGB.ink600 } };
+  if (convention) {
+    const n = ws.getCell(3, 1);
+    n.value = convention;
+    n.font = { name: UI, size: 9, bold: true, color: { argb: ARGB.accent } };
+  }
   writeHeader(ws, 4, cols);
   return ws;
 }
@@ -151,7 +167,7 @@ function writeHeader(ws: ExcelJS.Worksheet, at: number, cols: readonly Col[]): v
 }
 
 const ROW_FILL: Readonly<Record<RowKind, string>> = {
-  group: ARGB.vendor,
+  group: ARGB.outsourcer,
   site: ARGB.white,
   subtotal: ARGB.surface1,
   total: ARGB.surface2,
@@ -247,11 +263,11 @@ function siteValue(row: GridRow, key: NumericKey): number | null {
   return spec.aggregate === 'sum' ? displayRound(v, spec.format ?? 'one') : v;
 }
 
-function gapTone(v: number | null): Tone | undefined {
+function overUnderTone(v: number | null): Tone | undefined {
   if (v === null) return undefined;
   const r = displayRound(v, 'signed');
   if (v === 0) return 'muted';
-  return r > 0 ? 'neg' : r < 0 ? 'pos' : undefined;
+  return r > 0 ? 'pos' : r < 0 ? 'neg' : undefined;
 }
 
 function planCell(row: GridRow, key: ColumnKey, colIndex: number, range: [number, number] | undefined): CellSpec | null {
@@ -262,7 +278,7 @@ function planCell(row: GridRow, key: ColumnKey, colIndex: number, range: [number
   const numFmt = FORMAT_OF[spec.format ?? 'one'];
   const value = row.kind === 'site' ? siteValue(row, k) : (row.cells[k] ?? null);
   if (value === null) return { v: '–', tone: 'muted' };
-  const tone = k === 'gap' ? gapTone(value) : value === 0 ? 'muted' : undefined;
+  const tone = k === 'overUnder' ? overUnderTone(value) : value === 0 ? 'muted' : undefined;
   if (row.kind !== 'site' && spec.aggregate === 'sum' && range) {
     const L = colLetter(colIndex);
     return { f: `SUBTOTAL(9,${L}${range[0]}:${L}${range[1]})`, v: value, numFmt, tone };
@@ -286,7 +302,7 @@ export function planWorkbook(
     width: c.key === 'site' ? 34 : Math.max(10, Math.round(c.width / 7)),
     text: c.key === 'classStart',
   }));
-  const ws = addSheet(wb, sheetName, `${ctx.planName} · ${ctx.scenarioName ?? 'Baseline'}`, ctx.context, cols);
+  const ws = addSheet(wb, sheetName, `${ctx.planName} · ${ctx.scenarioName ?? 'Baseline'}`, ctx.context, cols, CONVENTIONS);
   const first = 6;
   const ranges = aggregateRanges(rows, first);
   const out: Row[] = rows.map((row, i) => ({
@@ -307,7 +323,7 @@ const COLUMN_BAND: Readonly<Record<string, string>> = {
   demand: 'Demand',
   requirement: 'Requirement',
   supply: 'Supply',
-  hiring: 'Gap & hiring',
+  hiring: 'Over/under & hiring',
 };
 
 // Comparison ------------------------------------------------------------------
@@ -329,7 +345,7 @@ export function compareWorkbook(
   }
   cols.push({ header: 'Changed', band: 'Status', width: 10, text: true });
 
-  const ws = addSheet(wb, sheetName, `${ctx.planName} · Baseline against ${extras.scenario.name}`, ctx.context, cols);
+  const ws = addSheet(wb, sheetName, `${ctx.planName} · Baseline against ${extras.scenario.name}`, ctx.context, cols, CONVENTIONS);
   const first = 6;
   const ranges = aggregateRanges(model.rows, first);
   const out: Row[] = model.rows.map((row, i) => {
@@ -353,7 +369,7 @@ export function compareWorkbook(
               f: `ROUND(${colLetter(baseCol + 1)}${first + i}-${colLetter(baseCol)}${first + i},${dp})`,
               v: Math.round(d * 10 ** dp) / 10 ** dp,
               numFmt: spec.format === 'int' ? FMT.signedInt : spec.format === 'pct' ? '+0.0%;-0.0%;0.0%' : FMT.signedOne,
-              tone: d === 0 ? 'muted' : m === 'gap' ? (d > 0 ? 'neg' : 'pos') : undefined,
+              tone: d === 0 ? 'muted' : m === 'overUnder' ? (d > 0 ? 'pos' : 'neg') : undefined,
             };
       cells.push(b, s, delta);
     });
@@ -410,7 +426,7 @@ function overridesSheet(
   ];
   writeHeader(ws, at, scols);
   const lines: [string, [number, number], string][] = [
-    ['Avg rostered FTE', summary.avgRostered, FMT.one],
+    ['Avg required FTE', summary.avgRequired, FMT.one],
     ['Hires to start', summary.starters, FMT.int],
     ['Site-weeks over cap', summary.capShortfallWeeks, FMT.int],
     ['Lead-time shortfall FTE', summary.leadShortfallFte, FMT.one],
@@ -441,7 +457,7 @@ export function hiringWorkbook(lib: Lib, hp: HiringPlan, ctx: ExportContext, ass
 function hiringSheet(wb: ExcelJS.Workbook, hp: HiringPlan, ctx: ExportContext): void {
   const cols: Col[] = [
     { header: 'Site', band: 'Start week / site', width: 30 },
-    { header: 'Vendor', band: 'Class', width: 20, text: true },
+    { header: 'Outsourcer', band: 'Class', width: 20, text: true },
     { header: 'Starters', band: 'Class', width: 10 },
     { header: 'Graduates', band: 'Class', width: 11 },
     { header: 'Start', band: 'Schedule', width: 17 },
@@ -464,7 +480,7 @@ function hiringSheet(wb: ExcelJS.Workbook, hp: HiringPlan, ctx: ExportContext): 
         sub: c.siteId,
         flag: c.capLimited ? 'CAP' : undefined,
         cells: [
-          { v: c.vendor, text: true },
+          { v: c.outsourcer, text: true },
           { v: c.starters, numFmt: FMT.int },
           { v: displayRound(c.graduates, 'one'), numFmt: FMT.one },
           { v: new Date(`${c.startDate}T00:00:00Z`), numFmt: FMT.date },
@@ -505,7 +521,7 @@ function hiringSheet(wb: ExcelJS.Workbook, hp: HiringPlan, ctx: ExportContext): 
   const at = first + rows.length + 2;
   const ecols: Col[] = [
     { header: 'Site', band: 'Not coverable by hiring', width: 30 },
-    { header: 'Vendor', band: 'Not coverable by hiring', width: 20, text: true },
+    { header: 'Outsourcer', band: 'Not coverable by hiring', width: 20, text: true },
     { header: 'Reason', band: 'Not coverable by hiring', width: 10, text: true },
     { header: 'Peak FTE', band: 'Not coverable by hiring', width: 11 },
     { header: 'Peak week', band: 'Not coverable by hiring', width: 17, text: true },
@@ -517,7 +533,7 @@ function hiringSheet(wb: ExcelJS.Workbook, hp: HiringPlan, ctx: ExportContext): 
     sub: e.siteId,
     flag: e.kind === 'cap' ? 'CAP' : undefined,
     cells: [
-      { v: e.vendor, text: true },
+      { v: e.outsourcer, text: true },
       { v: e.kind === 'lead' ? 'Lead time' : 'Cap', text: true },
       { v: displayRound(e.peakFte, 'one'), numFmt: FMT.one },
       { v: `W${String(e.peakWeek).padStart(2, '0')} · ${e.weeks.length} wks`, text: true },

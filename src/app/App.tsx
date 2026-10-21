@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { demoDataset } from '../data/dataset.ts';
 import { engine, periodLabel, type PlanResult } from '../engine/index.ts';
-import { applyScenario, type Scenario } from '../scenario/scenario.ts';
+import { applyScenario, parseStoredScenarios, type Scenario } from '../scenario/scenario.ts';
 import { buildCompare, COMPARE_METRICS, DEFAULT_COMPARE_HIDDEN, deltaOf, deltaTrace, horizonSummary } from './compare.ts';
 import { CompareGrid, type CompareRef } from './components/CompareGrid.tsx';
 import { HiringView, type HiringGrouping, type HiringKey, type HiringRef } from './components/HiringView.tsx';
@@ -43,7 +43,7 @@ const PLAN_TITLE = `${PLAN.name} ${PLAN.version}`;
 const longDate = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 function filtersText(filters: Filters): string {
-  if (!isFiltered(filters)) return 'all lines of business, languages and channels';
+  if (!isFiltered(filters)) return 'all business units, languages and channels';
   return FILTER_DIMENSIONS.filter((d) => filters[d.key].length < d.values.length)
     .map((d) => `${d.label.toLowerCase()} ${filters[d.key].map((v) => (d.key === 'channel' ? (CHANNEL_LABEL[v] ?? v) : v)).join(', ')}`)
     .join('; ');
@@ -69,11 +69,6 @@ function writeStored(key: string, value: string): void {
   }
 }
 
-function parseScenarios(raw: string): Scenario[] {
-  const value: unknown = JSON.parse(raw);
-  return Array.isArray(value) ? (value as Scenario[]).filter((s) => s && typeof s.id === 'string' && Array.isArray(s.overrides)) : [];
-}
-
 type AnyRef = (CellRef & { side?: undefined }) | CompareRef;
 
 /** Step in a site-week trace behind each hiring plan column. */
@@ -90,17 +85,17 @@ const HIRING_FOCUS: Readonly<Record<HiringKey, string>> = {
 export function App() {
   const [view, setView] = useState<View>('plans');
   const [week, setWeek] = useState<number>(PLAN.landingWeek);
-  const [grouping, setGrouping] = useState<Grouping>('vendor');
+  const [grouping, setGrouping] = useState<Grouping>('outsourcer');
   const [filters, setFilters] = useState<Filters>(ALL_FILTERS);
   const [hidden, setHidden] = useState<ReadonlySet<ColumnKey>>(new Set());
   const [compareHidden, setCompareHidden] = useState<ReadonlySet<ColumnKey>>(DEFAULT_COMPARE_HIDDEN);
   const [changedOnly, setChangedOnly] = useState(true);
   const [selected, setSelected] = useState<AnyRef | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState<boolean>(() => readStored(INSPECTOR_KEY, true, (r) => r !== 'false'));
-  const [scenarios, setScenarios] = useState<Scenario[]>(() => readStored(SCENARIOS_KEY, [], parseScenarios));
+  const [scenarios, setScenarios] = useState<Scenario[]>(() => readStored(SCENARIOS_KEY, [], parseStoredScenarios));
   const [activeId, setActiveId] = useState<string | null>(null);
   const [hiringGrouping, setHiringGrouping] = useState<HiringGrouping>('week');
-  const [vendorFilter, setVendorFilter] = useState<ReadonlySet<string>>(() => new Set(dataset.vendors));
+  const [outsourcerFilter, setOutsourcerFilter] = useState<ReadonlySet<string>>(() => new Set(dataset.outsourcers));
   const [hiringSel, setHiringSel] = useState<HiringRef | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -205,8 +200,8 @@ export function App() {
   const metrics = useMemo(() => COMPARE_METRICS.filter((k) => !compareHidden.has(k)), [compareHidden]);
 
   const hiringPlan = useMemo(
-    () => (view === 'hiring' ? buildHiringPlan(shownPlan, dataset.plan.constants, dataset.plan.isoYear, vendorFilter) : null),
-    [view, shownPlan, vendorFilter],
+    () => (view === 'hiring' ? buildHiringPlan(shownPlan, dataset.plan.constants, dataset.plan.isoYear, outsourcerFilter) : null),
+    [view, shownPlan, outsourcerFilter],
   );
 
   const unitCount = useMemo(() => dataset.units.filter(unitPredicate(filters)).length, [filters]);
@@ -257,7 +252,7 @@ export function App() {
       ...scenTarget,
       id: `${row.id}:${key}:delta`,
       trace: deltaTrace(row, key, compare, active.name),
-      shown: formatDelta(deltaOf(row, key), spec.format ?? 'one', key === 'gap'),
+      shown: formatDelta(deltaOf(row, key), spec.format ?? 'one', key === 'overUnder'),
       isInput: false,
     };
   }, [selected, view, compare, active, rows, hiringTarget]);
@@ -268,8 +263,8 @@ export function App() {
       planName: PLAN_TITLE,
       scenarioName: active?.name ?? null,
       context: `Week ${wk?.label ?? ''} (from ${wk ? longDate.format(new Date(`${wk.start}T00:00:00Z`)) : ''}) · grouped by ${
-        GROUPINGS.find((g) => g.id === grouping)?.label.toLowerCase() ?? 'vendor'
-      } · ${filtersText(filters)}${isFiltered(filters) ? ' · supply split by share of rostered FTE' : ''}`,
+        GROUPINGS.find((g) => g.id === grouping)?.label.toLowerCase() ?? 'outsourcer'
+      } · ${filtersText(filters)}${isFiltered(filters) ? ' · supply split by share of required FTE' : ''}`,
       exportedOn: new Date().toISOString().slice(0, 10),
     };
     const scenarioPart = active?.name ?? 'Baseline';
@@ -341,9 +336,9 @@ export function App() {
         hp={hiringPlan}
         scenarioName={active?.name ?? null}
         trainingAttrition={dataset.plan.constants.trainingAttrition}
-        vendors={dataset.vendors}
-        vendorFilter={vendorFilter}
-        onVendorFilter={setVendorFilter}
+        outsourcers={dataset.outsourcers}
+        outsourcerFilter={outsourcerFilter}
+        onOutsourcerFilter={setOutsourcerFilter}
         grouping={hiringGrouping}
         onGrouping={setHiringGrouping}
         selected={hiringSel}
@@ -397,7 +392,7 @@ export function App() {
         <ScenarioBar
           scenario={active}
           sites={dataset.plan.sites}
-          vendors={dataset.vendors}
+          outsourcers={dataset.outsourcers}
           horizon={HORIZON}
           summary={summary}
           calcMs={scen.ms}

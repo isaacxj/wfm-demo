@@ -6,7 +6,7 @@
  * A scenario is a modified PlanInput. The engine holds no state.
  */
 import { periodLabel } from './calendar.ts';
-import { periodRequirement, type Channel, type RequirementResult } from './requirement.ts';
+import { periodRequirement, REQUIRED_FTE_NOTE, type Channel, type RequirementResult } from './requirement.ts';
 import { siteWeek, type SiteWeekResult } from './siteweek.ts';
 import { TraceBuilder, group, type TracePart, type TraceStep } from './trace.ts';
 
@@ -37,7 +37,7 @@ export interface PlanConstants {
 
 export interface SiteInput {
   id: string;
-  vendor: string;
+  outsourcer: string;
   name: string;
   country: string;
   workWeekHours: number;
@@ -115,9 +115,9 @@ export interface SitePeriod {
   workloadHours: number;
   occupancyCeiling: number;
   shrinkage: number;
+  productiveFte: number;
   requiredFte: number;
-  rosteredFte: number;
-  /** Supply roll-forward with the recommended class, and the residual gap. */
+  /** Supply roll-forward with the recommended class, and the resulting Over/Under. */
   flow: SiteWeekResult;
   /** ISO week the recommended class starts, or null when none is needed. */
   classStartLabel: string | null;
@@ -180,7 +180,7 @@ export function computePlan(input: PlanInput): PlanResult {
       });
 
       const t = new TraceBuilder();
-      const { volume, aht, workload, required, rostered } = rollUpDemand(t, unitPeriods);
+      const { volume, aht, workload, productive, required } = rollUpDemand(t, unitPeriods);
 
       const flow = siteWeek({
         opening,
@@ -190,7 +190,7 @@ export function computePlan(input: PlanInput): PlanResult {
         transfersIn: site.transfersIn?.[w] ?? 0,
         transfersOut: site.transfersOut?.[w] ?? 0,
         cap: site.cap,
-        rosteredRequired: rostered.value,
+        requiredFte: required.value,
         week: week.index,
         firstStartWeek: weeks[0]?.index ?? 1,
         trainingAttrition: constants.trainingAttrition,
@@ -213,7 +213,7 @@ export function computePlan(input: PlanInput): PlanResult {
       t.input('occupancyCeiling', 'Occupancy ceiling', site.occupancyCeiling, 'ratio', site.codes.occupancyCeiling);
       t.input('shrinkage', 'Shrinkage', site.shrinkage, 'ratio', site.codes.shrinkage);
       t.include('flow', flow.trace);
-      t.link('flow.rostered', [rostered]);
+      t.link('flow.required', [required]);
       const prior = periods[w - 1];
       if (prior) {
         t.attach('flow.opening', [{ id: `${site.id}:${prior.weekLabel}`, label: `${prior.weekLabel} closing`, steps: prior.trace, focus: 'flow.closing' }]);
@@ -228,8 +228,8 @@ export function computePlan(input: PlanInput): PlanResult {
         workloadHours: workload.value,
         occupancyCeiling: site.occupancyCeiling,
         shrinkage: site.shrinkage,
+        productiveFte: productive.value,
         requiredFte: required.value,
-        rosteredFte: rostered.value,
         flow,
         classStartLabel: flow.hiresToStart > 0 ? periodLabel(input.isoYear, flow.startPeriod) : null,
         units: unitPeriods,
@@ -261,13 +261,14 @@ export function rollUpDemand(t: TraceBuilder, unitPeriods: readonly UnitPeriod[]
   const workload = sumStep(t, 'workload', 'Workload', 'hours', unitPeriods, (u) => u.requirement.workloadHours, (u) =>
     excelOf(u.requirement, 'workload'),
   );
+  const productive = sumStep(t, 'productive', 'Productive FTE', 'FTE', unitPeriods, (u) => u.requirement.productiveFte, (u) =>
+    excelOf(u.requirement, 'productive'),
+  );
   const required = sumStep(t, 'required', 'Required FTE', 'FTE', unitPeriods, (u) => u.requirement.requiredFte, (u) =>
     excelOf(u.requirement, 'required'),
   );
-  const rostered = sumStep(t, 'rostered', 'Rostered FTE', 'FTE', unitPeriods, (u) => u.requirement.rosteredFte, (u) =>
-    excelOf(u.requirement, 'rostered'),
-  );
-  return { volume, aht, workload, required, rostered };
+  t.note('required', REQUIRED_FTE_NOTE);
+  return { volume, aht, workload, productive, required };
 }
 
 function sumStep(

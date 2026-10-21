@@ -1,5 +1,5 @@
 /**
- * Prints dataset totals: annual roll-up by vendor and site, and the week 12
+ * Prints dataset totals: annual roll-up by outsourcer and site, and the week 12
  * snapshot in grid column order. Run with `npm run totals`.
  */
 import { demoDataset } from '../src/data/dataset.ts';
@@ -29,7 +29,7 @@ function table(head: readonly string[], rows: readonly (readonly string[])[], le
 console.log('WFM Capacity Planner, demo dataset');
 console.log(
   `Seed ${ds.seed} · ${plan.weeks.length} weeks ${plan.weeks[0]?.label} to ${plan.weeks.at(-1)?.label} · ` +
-    `${ds.plan.sites.length} sites · ${ds.vendors.length} vendors · ${ds.units.length} planning units · fingerprint ${fingerprint}`,
+    `${ds.plan.sites.length} sites · ${ds.outsourcers.length} outsourcers · ${ds.units.length} planning units · fingerprint ${fingerprint}`,
 );
 console.log();
 
@@ -38,8 +38,8 @@ console.log();
 interface Annual {
   volume: number;
   workload: number;
-  avgRostered: number;
-  peakRostered: number;
+  avgRequired: number;
+  peakRequired: number;
   peakWeek: string;
   openingHc: number;
   closingHc: number;
@@ -52,12 +52,12 @@ interface Annual {
 
 function annual(sp: SitePlan): Annual {
   const p = sp.periods;
-  const peak = p.reduce((a, b) => (b.rosteredFte > a.rosteredFte ? b : a));
+  const peak = p.reduce((a, b) => (b.requiredFte > a.requiredFte ? b : a));
   return {
     volume: sum(p.map((x) => x.volume)),
     workload: sum(p.map((x) => x.workloadHours)),
-    avgRostered: sum(p.map((x) => x.rosteredFte)) / p.length,
-    peakRostered: peak.rosteredFte,
+    avgRequired: sum(p.map((x) => x.requiredFte)) / p.length,
+    peakRequired: peak.requiredFte,
     peakWeek: peak.weekLabel,
     openingHc: p[0]?.flow.opening ?? 0,
     closingHc: p.at(-1)?.flow.closing ?? 0,
@@ -73,8 +73,8 @@ function addAnnual(list: readonly Annual[]): Annual {
   return {
     volume: sum(list.map((a) => a.volume)),
     workload: sum(list.map((a) => a.workload)),
-    avgRostered: sum(list.map((a) => a.avgRostered)),
-    peakRostered: NaN,
+    avgRequired: sum(list.map((a) => a.avgRequired)),
+    peakRequired: NaN,
     peakWeek: '',
     openingHc: sum(list.map((a) => a.openingHc)),
     closingHc: sum(list.map((a) => a.closingHc)),
@@ -90,8 +90,8 @@ const annualRow = (label: string, a: Annual): string[] => [
   label,
   int(a.volume),
   int(a.workload),
-  one(a.avgRostered),
-  Number.isNaN(a.peakRostered) ? '–' : `${one(a.peakRostered)} ${a.peakWeek.slice(5)}`,
+  one(a.avgRequired),
+  Number.isNaN(a.peakRequired) ? '–' : `${one(a.peakRequired)} ${a.peakWeek.slice(5)}`,
   int(a.openingHc),
   int(a.closingHc),
   one(a.attrition),
@@ -103,22 +103,22 @@ const annualRow = (label: string, a: Annual): string[] => [
 
 console.log('ANNUAL 2027');
 const annualRows: string[][] = [];
-const vendorTotals: Annual[] = [];
-for (const vendor of ds.vendors) {
-  const sites = plan.sites.filter((s) => s.site.vendor === vendor);
-  annualRows.push([vendor.toUpperCase(), ...Array<string>(11).fill('')]);
+const outsourcerTotals: Annual[] = [];
+for (const outsourcer of ds.outsourcers) {
+  const sites = plan.sites.filter((s) => s.site.outsourcer === outsourcer);
+  annualRows.push([outsourcer.toUpperCase(), ...Array<string>(11).fill('')]);
   const list = sites.map((s) => {
     const a = annual(s);
     annualRows.push(annualRow(`  ${s.site.name}${s.site.cap !== null ? ` (cap ${s.site.cap})` : ''}`, a));
     return a;
   });
   const t = addAnnual(list);
-  vendorTotals.push(t);
-  annualRows.push(annualRow(`  Subtotal ${vendor}`, t));
+  outsourcerTotals.push(t);
+  annualRows.push(annualRow(`  Subtotal ${outsourcer}`, t));
 }
-annualRows.push(annualRow('GRAND TOTAL', addAnnual(vendorTotals)));
+annualRows.push(annualRow('GRAND TOTAL', addAnnual(outsourcerTotals)));
 table(
-  ['Site', 'Volume', 'Workload hrs', 'Avg rost.', 'Peak rost. (wk)', 'HC W01', 'HC W52', 'Attrition', 'Hires prod.', 'Hire need Σ', 'Wks at cap', 'Wks over cap'],
+  ['Site', 'Volume', 'Workload hrs', 'Avg req.', 'Peak req. (wk)', 'HC W01', 'HC W52', 'Attrition', 'Hires prod.', 'Hire need Σ', 'Wks at cap', 'Wks over cap'],
   annualRows,
 );
 console.log();
@@ -139,20 +139,20 @@ const snapTotal = (label: string, list: readonly SitePlan[]): string[] => {
     one(sum(ps.map((p) => p.workloadHours))),
     '–',
     '–',
+    one(sum(ps.map((p) => p.productiveFte))),
     one(sum(ps.map((p) => p.requiredFte))),
-    one(sum(ps.map((p) => p.rosteredFte))),
     int(sum(ps.map((p) => p.flow.opening))),
     one(sum(ps.map((p) => p.flow.attrition))),
     int(sum(ps.map((p) => p.flow.hiresProductive))),
     int(sum(ps.map((p) => p.flow.closing))),
-    signed(sum(ps.map((p) => p.flow.gap))),
+    signed(sum(ps.map((p) => p.flow.overUnder))),
     int(sum(ps.map((p) => p.flow.hiresToStart))),
     '–',
   ];
 };
-for (const vendor of ds.vendors) {
-  const sites = plan.sites.filter((s) => s.site.vendor === vendor);
-  snapRows.push([vendor.toUpperCase(), ...Array<string>(14).fill('')]);
+for (const outsourcer of ds.outsourcers) {
+  const sites = plan.sites.filter((s) => s.site.outsourcer === outsourcer);
+  snapRows.push([outsourcer.toUpperCase(), ...Array<string>(14).fill('')]);
   for (const s of sites) {
     const p = s.periods[SNAPSHOT_WEEK - 1]!;
     snapRows.push([
@@ -162,22 +162,22 @@ for (const vendor of ds.vendors) {
       one(p.workloadHours),
       pct(p.occupancyCeiling),
       pct(p.shrinkage),
+      one(p.productiveFte),
       one(p.requiredFte),
-      one(p.rosteredFte),
       int(p.flow.opening),
       one(p.flow.attrition),
       int(p.flow.hiresProductive),
       int(p.flow.closing),
-      signed(p.flow.gap),
+      signed(p.flow.overUnder),
       int(p.flow.hiresToStart),
       p.classStartLabel ?? '–',
     ]);
   }
-  snapRows.push(snapTotal(`  Subtotal ${vendor}`, sites));
+  snapRows.push(snapTotal(`  Subtotal ${outsourcer}`, sites));
 }
 snapRows.push(snapTotal('GRAND TOTAL', plan.sites));
 table(
-  ['Site', 'Volume', 'AHT s', 'Workload hrs', 'Occ %', 'Shrink %', 'Required', 'Rostered', 'Opening HC', 'Attrition', 'Hires prod.', 'Closing HC', 'Gap', 'Hire need', 'Class start'],
+  ['Site', 'Volume', 'AHT s', 'Workload hrs', 'Occ %', 'Shrink %', 'Productive', 'Required', 'Opening HC', 'Attrition', 'Hires prod.', 'Planned FTE', 'Over/Under', 'Hire need', 'Class start'],
   snapRows,
 );
 console.log();
@@ -191,7 +191,7 @@ if (mnl1) {
   console.log(
     `Manila-1 cap ${mnl1.site.cap}: requirement exceeds cap in ${over.length} weeks ` +
       `(${over.map((p) => p.weekLabel.slice(5)).join(' ')}); ` +
-      (worst ? `worst ${worst.weekLabel}, rostered ${one(worst.rosteredFte)}, shortfall ${one(worst.flow.capShortfall)}` : ''),
+      (worst ? `worst ${worst.weekLabel}, required ${one(worst.requiredFte)}, shortfall ${one(worst.flow.capShortfall)}` : ''),
   );
 }
 

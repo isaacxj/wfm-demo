@@ -21,7 +21,7 @@ export type DraftOverride = Override extends infer O ? (O extends Override ? Omi
 interface ScenarioBarProps {
   scenario: Scenario;
   sites: readonly SiteInput[];
-  vendors: readonly string[];
+  outsourcers: readonly string[];
   horizon: number;
   summary: HorizonSummary;
   calcMs: number;
@@ -78,7 +78,7 @@ export function ScenarioBar(props: ScenarioBarProps) {
       </div>
       <div className="summary-strip" aria-label="Horizon summary">
         <span className="ss-label">Horizon {horizon} wks</span>
-        <SummaryItem label="Avg rostered FTE" pair={summary.avgRostered} decimals={1} />
+        <SummaryItem label="Avg required FTE" pair={summary.avgRequired} decimals={1} />
         <SummaryItem label="Hires to start" pair={summary.starters} decimals={0} badIfUp />
         <SummaryItem label="Site-weeks over cap" pair={summary.capShortfallWeeks} decimals={0} badIfUp />
         <SummaryItem label="Lead-time shortfall FTE" pair={summary.leadShortfallFte} decimals={1} badIfUp />
@@ -113,7 +113,7 @@ function SummaryItem({ label, pair, decimals, badIfUp }: { label: string; pair: 
 
 const KINDS: readonly OverrideKind[] = ['volume', 'aht', 'shrinkage', 'attrition', 'cap'];
 
-function OverrideForm({ sites, vendors, horizon, onAdd, onDone }: ScenarioBarProps & { onDone: () => void }) {
+function OverrideForm({ sites, outsourcers, horizon, onAdd, onDone }: ScenarioBarProps & { onDone: () => void }) {
   const [kind, setKind] = useState<OverrideKind>('volume');
   const [scopeKey, setScopeKey] = useState('all');
   const [volumeMode, setVolumeMode] = useState<'add' | 'pct'>('add');
@@ -124,7 +124,7 @@ function OverrideForm({ sites, vendors, horizon, onAdd, onDone }: ScenarioBarPro
 
   const siteOnly = kind === 'cap';
   const scopeOf = (key: string): Scope =>
-    key === 'all' ? { type: 'all' } : key.startsWith('v:') ? { type: 'vendor', vendor: key.slice(2) } : { type: 'site', siteId: key.slice(2) };
+    key === 'all' ? { type: 'all' } : key.startsWith('v:') ? { type: 'outsourcer', outsourcer: key.slice(2) } : { type: 'site', siteId: key.slice(2) };
 
   const choose = (k: OverrideKind) => {
     setKind(k);
@@ -203,8 +203,8 @@ function OverrideForm({ sites, vendors, horizon, onAdd, onDone }: ScenarioBarPro
         <select value={scopeKey} onChange={(e) => setScopeKey(e.target.value)}>
           {!siteOnly && <option value="all">All sites</option>}
           {!siteOnly && (
-            <optgroup label="Vendor">
-              {vendors.map((v) => (
+            <optgroup label="Outsourcer">
+              {outsourcers.map((v) => (
                 <option key={v} value={`v:${v}`}>
                   {v}
                 </option>

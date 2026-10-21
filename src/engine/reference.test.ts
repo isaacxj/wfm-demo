@@ -60,7 +60,7 @@ describe('3.5 reference cases', () => {
       }).agents;
     const delta = at(441) - at(420);
     expect(delta).toBe(109);
-    expect(Math.round(engine.rosteredFromProductive(delta, 0.3))).toBe(156);
+    expect(Math.round(engine.requiredFromProductive(delta, 0.3))).toBe(156);
   });
 
   it('chat AHT 600s, c=3, eff 0.75 → effective AHT 266.7s', () => {
@@ -78,7 +78,7 @@ describe('3.5 reference cases', () => {
     expect(r.effectiveAht).toBeCloseTo(266.67, 2);
   });
 
-  it('232,400 contacts, AHT 418s, 45h, 85% ceiling, 30.5% shrinkage → 26,984.2 hrs, 705.5 required, 1,015.1 rostered', () => {
+  it('232,400 contacts, AHT 418s, 45h, 85% ceiling, 30.5% shrinkage → 26,984.2 hrs, 705.5 productive, 1,015.1 required', () => {
     const r = engine.periodRequirement({
       volume: 232_400,
       aht: 418,
@@ -88,8 +88,8 @@ describe('3.5 reference cases', () => {
       shrinkage: 0.305,
     });
     expect(r.workloadHours.toFixed(1)).toBe('26984.2');
-    expect(r.requiredFte.toFixed(1)).toBe('705.5');
-    expect(r.rosteredFte.toFixed(1)).toBe('1015.1');
+    expect(r.productiveFte.toFixed(1)).toBe('705.5');
+    expect(r.requiredFte.toFixed(1)).toBe('1015.1');
   });
 
   it('20,000 deferred, AHT 300s, 32h → 52.08 FTE', () => {
@@ -102,11 +102,11 @@ describe('3.5 reference cases', () => {
       shrinkage: 0,
     });
     expect(r.occupancyApplied).toBe(1);
-    expect(r.requiredFte.toFixed(2)).toBe('52.08');
+    expect(r.productiveFte.toFixed(2)).toBe('52.08');
   });
 
-  it('1,000 on-phone, 30% shrinkage → 1,428.6 rostered', () => {
-    expect(engine.rosteredFromProductive(1000, 0.3).toFixed(1)).toBe('1428.6');
+  it('1,000 on-phone, 30% shrinkage → 1,428.6 required', () => {
+    expect(engine.requiredFromProductive(1000, 0.3).toFixed(1)).toBe('1428.6');
   });
 
   it('5% monthly attrition, weekly → 1.178%, and 5.89 heads lost from 500', () => {
@@ -119,7 +119,7 @@ describe('3.5 reference cases', () => {
 
   it('gap 60, 15% training attrition → 71 starters, 6 weeks earlier', () => {
     const r = engine.hiringNeed({
-      rosteredRequired: 560,
+      requiredFte: 560,
       closing: 500,
       neededPeriod: 20,
       trainingAttrition: 0.15,
@@ -171,7 +171,7 @@ describe('engine behaviour beyond the reference cases', () => {
     expect(rf.hiresHeldByCap).toBeGreaterThan(0);
 
     const h = engine.hiringNeed({
-      rosteredRequired: 1100,
+      requiredFte: 1100,
       closing: rf.closing,
       neededPeriod: 32,
       trainingAttrition: 0.15,
@@ -187,7 +187,7 @@ describe('engine behaviour beyond the reference cases', () => {
 
   it('a surplus starts no class', () => {
     const h = engine.hiringNeed({
-      rosteredRequired: 400,
+      requiredFte: 400,
       closing: 450,
       neededPeriod: 10,
       trainingAttrition: 0.15,
@@ -217,11 +217,11 @@ describe('trace', () => {
       'workload',
       'workWeekHours',
       'occupancy',
-      'required',
+      'productive',
       'shrinkage',
-      'rostered',
+      'required',
     ]);
-    expect(r.trace.at(-1)?.value).toBe(r.rosteredFte);
+    expect(r.trace.at(-1)?.value).toBe(r.requiredFte);
   });
 
   it('carries formulas on computed steps and assumption codes on inputs', () => {
@@ -240,7 +240,7 @@ describe('trace', () => {
   it('roll-forward and hiring Excel expressions reproduce their values', () => {
     const rf = engine.rollForward({ opening: 975, monthlyAttrition: 0.052, hiresProductive: 28, cap: 980 });
     const h = engine.hiringNeed({
-      rosteredRequired: 1100,
+      requiredFte: 1100,
       closing: 960.5,
       neededPeriod: 32,
       trainingAttrition: 0.15,

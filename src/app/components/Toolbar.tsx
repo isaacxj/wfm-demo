@@ -190,7 +190,7 @@ export function Toolbar(props: ToolbarProps) {
 
       <div className="tl-spacer" />
 
-      {filtered && <div className="tl-note">Supply split by share of rostered FTE</div>}
+      {filtered && <div className="tl-note">Supply split by share of required FTE</div>}
 
       <div className="tl-seg end">
         <Menu

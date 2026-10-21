@@ -8,7 +8,7 @@ const PLANNING = [
 ];
 
 const SETUP = [
-  { id: 'sites', label: 'Vendors & sites', icon: 'sites', enabled: false },
+  { id: 'sites', label: 'Outsourcers & sites', icon: 'sites', enabled: false },
   { id: 'assumptions', label: 'Assumptions', icon: 'assumptions', enabled: false },
   { id: 'imports', label: 'Imports', icon: 'imports', enabled: false },
   { id: 'audit', label: 'Audit', icon: 'audit', enabled: false },

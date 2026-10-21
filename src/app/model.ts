@@ -16,13 +16,13 @@ export type ColumnKey =
   | 'workload'
   | 'occ'
   | 'shrink'
+  | 'productive'
   | 'required'
-  | 'rostered'
   | 'opening'
   | 'attrition'
   | 'hires'
-  | 'closing'
-  | 'gap'
+  | 'planned'
+  | 'overUnder'
   | 'hireNeed'
   | 'classStart';
 
@@ -40,7 +40,7 @@ export const COLUMN_GROUPS: readonly ColumnGroupSpec[] = [
   { id: 'demand', label: 'Demand' },
   { id: 'requirement', label: 'Requirement' },
   { id: 'supply', label: 'Supply' },
-  { id: 'hiring', label: 'Gap & hiring' },
+  { id: 'hiring', label: 'Over/under & hiring' },
 ];
 
 type Aggregate = 'sum' | 'ahtWeighted' | 'effectiveShrink' | 'none';
@@ -63,13 +63,13 @@ export const COLUMNS: readonly ColumnSpec[] = [
   { key: 'workload', header: 'Workload hrs', group: 'demand', width: 98, format: 'one', aggregate: 'sum' },
   { key: 'occ', header: 'Occ %', group: 'requirement', width: 58, format: 'pct', aggregate: 'none', input: 'always' },
   { key: 'shrink', header: 'Shrink %', group: 'requirement', width: 70, format: 'pct', aggregate: 'effectiveShrink', input: 'always' },
-  { key: 'required', header: 'Required FTE', group: 'requirement', width: 94, format: 'one', aggregate: 'sum' },
-  { key: 'rostered', header: 'Rostered FTE', group: 'requirement', width: 96, format: 'one', aggregate: 'sum' },
+  { key: 'productive', header: 'Productive FTE', group: 'requirement', width: 106, format: 'one', aggregate: 'sum' },
+  { key: 'required', header: 'Required FTE', group: 'requirement', width: 96, format: 'one', aggregate: 'sum' },
   { key: 'opening', header: 'Opening HC', group: 'supply', width: 86, format: 'int', aggregate: 'sum', input: 'week1' },
   { key: 'attrition', header: 'Attrition', group: 'supply', width: 74, format: 'one', aggregate: 'sum' },
   { key: 'hires', header: 'Hires prod.', group: 'supply', width: 82, format: 'int', aggregate: 'sum' },
-  { key: 'closing', header: 'Closing HC', group: 'supply', width: 84, format: 'int', aggregate: 'sum' },
-  { key: 'gap', header: 'Gap', group: 'hiring', width: 72, format: 'signed', aggregate: 'sum' },
+  { key: 'planned', header: 'Planned FTE', group: 'supply', width: 92, format: 'int', aggregate: 'sum' },
+  { key: 'overUnder', header: 'Over/Under', group: 'hiring', width: 88, format: 'signed', aggregate: 'sum' },
   { key: 'hireNeed', header: 'Hire need', group: 'hiring', width: 76, format: 'int', aggregate: 'sum' },
   { key: 'classStart', header: 'Class start', group: 'hiring', width: 86, aggregate: 'none' },
 ];
@@ -83,7 +83,7 @@ export function columnSpec(key: ColumnKey): ColumnSpec {
 // Filters ---------------------------------------------------------------------
 
 export const FILTER_DIMENSIONS = [
-  { key: 'lob', label: 'Line of business', values: ['Mobile', 'Internet', 'Cable'] },
+  { key: 'lob', label: 'Business Unit', values: ['Mobile', 'Internet', 'Cable'] },
   { key: 'language', label: 'Language', values: ['EN', 'FR', 'ES', 'TL'] },
   { key: 'channel', label: 'Channel', values: ['voice', 'chat', 'deferred'] },
 ] as const;
@@ -114,10 +114,10 @@ export const CHANNEL_LABEL: Readonly<Record<string, string>> = { voice: 'Voice',
 
 // Rows ------------------------------------------------------------------------
 
-export type Grouping = 'vendor' | 'country' | 'none';
+export type Grouping = 'outsourcer' | 'country' | 'none';
 
 export const GROUPINGS: readonly { id: Grouping; label: string; band: string }[] = [
-  { id: 'vendor', label: 'Vendor', band: 'Vendor / site' },
+  { id: 'outsourcer', label: 'Outsourcer', band: 'Outsourcer / site' },
   { id: 'country', label: 'Country', band: 'Country / site' },
   { id: 'none', label: 'None', band: 'Site' },
 ];
@@ -140,7 +140,7 @@ export interface GridRow {
   siteId?: string;
   /** Short site code shown beside the name. */
   code?: string;
-  vendor?: string;
+  outsourcer?: string;
   atCap?: boolean;
   cells: Readonly<Partial<Record<NumericKey, number | null>>>;
   classStart: string | null;
@@ -163,19 +163,19 @@ export function buildRows(plan: PlanResult, opts: RowModelOptions): GridRow[] {
     if (!period) throw new RangeError(`Week ${opts.week} outside the horizon`);
     const slice = engine.sliceSitePeriod(period, include);
     if (!slice) continue;
-    siteRows.push(siteRow(sp.site.id, sp.site.name, sp.site.vendor, slice, opts.week));
+    siteRows.push(siteRow(sp.site.id, sp.site.name, sp.site.outsourcer, slice, opts.week));
   }
 
   const rows: GridRow[] = [];
   if (opts.grouping === 'none') {
     rows.push(...siteRows);
   } else {
-    const keyOf = (r: GridRow) => (opts.grouping === 'vendor' ? (r.vendor ?? '') : countryOf(plan, r.siteId));
+    const keyOf = (r: GridRow) => (opts.grouping === 'outsourcer' ? (r.outsourcer ?? '') : countryOf(plan, r.siteId));
     const order: string[] = [];
     for (const r of siteRows) if (!order.includes(keyOf(r))) order.push(keyOf(r));
     for (const key of order) {
       const members = siteRows.filter((r) => keyOf(r) === key);
-      const label = opts.grouping === 'vendor' ? key : (COUNTRY_NAME[key] ?? key);
+      const label = opts.grouping === 'outsourcer' ? key : (COUNTRY_NAME[key] ?? key);
       rows.push({ id: `group:${key}`, kind: 'group', label, cells: {}, classStart: null, inputs: new Set() });
       rows.push(...members);
       rows.push(aggregateRow(`subtotal:${key}`, 'subtotal', `Subtotal ${label}`, members));
@@ -189,7 +189,7 @@ function countryOf(plan: PlanResult, siteId: string | undefined): string {
   return plan.sites.find((s) => s.site.id === siteId)?.site.country ?? '';
 }
 
-function siteRow(id: string, name: string, vendor: string, s: SiteSlice, week: number): GridRow {
+function siteRow(id: string, name: string, outsourcer: string, s: SiteSlice, week: number): GridRow {
   const inputs = new Set<ColumnKey>(
     COLUMNS.filter((c) => c.input === 'always' || (c.input === 'week1' && week === 1)).map((c) => c.key),
   );
@@ -199,7 +199,7 @@ function siteRow(id: string, name: string, vendor: string, s: SiteSlice, week: n
     label: name,
     siteId: id,
     code: id,
-    vendor,
+    outsourcer,
     atCap: s.atCap,
     cells: {
       volume: s.volume,
@@ -207,13 +207,13 @@ function siteRow(id: string, name: string, vendor: string, s: SiteSlice, week: n
       workload: s.workloadHours,
       occ: s.occupancyCeiling,
       shrink: s.shrinkage,
+      productive: s.productiveFte,
       required: s.requiredFte,
-      rostered: s.rosteredFte,
       opening: s.opening,
       attrition: s.attrition,
       hires: s.hiresProductive,
-      closing: s.closing,
-      gap: s.gap,
+      planned: s.closing,
+      overUnder: s.overUnder,
       hireNeed: s.hiresToStart,
     },
     classStart: s.hiresToStart > 0 ? s.classStartLabel : null,
@@ -238,8 +238,8 @@ function aggregateRow(id: string, kind: 'subtotal' | 'total', label: string, mem
         break;
       }
       case 'effectiveShrink': {
-        const rost = slices.reduce((s, x) => s + x.rosteredFte, 0);
-        cells[key] = rost === 0 ? null : 1 - slices.reduce((s, x) => s + x.requiredFte, 0) / rost;
+        const reqd = slices.reduce((s, x) => s + x.requiredFte, 0);
+        cells[key] = reqd === 0 ? null : 1 - slices.reduce((s, x) => s + x.productiveFte, 0) / reqd;
         break;
       }
       case 'none':

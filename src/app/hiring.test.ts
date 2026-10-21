@@ -45,9 +45,9 @@ describe('hiring plan', () => {
     expect(cap?.weeks).toContain(32);
   });
 
-  it('filters by vendor', () => {
+  it('filters by outsourcer', () => {
     const tp = buildHiringPlan(plan, ds.plan.constants, ds.plan.isoYear, new Set(['Teleperformance']));
-    expect(new Set(tp.classes.map((c) => c.vendor))).toEqual(new Set(['Teleperformance']));
+    expect(new Set(tp.classes.map((c) => c.outsourcer))).toEqual(new Set(['Teleperformance']));
   });
 
   it('follows a scenario: more volume means more starters', () => {

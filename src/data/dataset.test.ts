@@ -14,12 +14,12 @@ describe('demo dataset', () => {
   });
 
   it('is pinned, so a screenshot today matches next month', () => {
-    expect(fnv1a(JSON.stringify(ds.plan)).toString(16).padStart(8, '0')).toBe('5472f8bc');
+    expect(fnv1a(JSON.stringify(ds.plan)).toString(16).padStart(8, '0')).toBe('36e6e728');
   });
 
-  it('has eight sites across four vendors, as tabled in the brief', () => {
+  it('has eight sites across four outsourcers, as tabled in the brief', () => {
     expect(ds.plan.sites).toHaveLength(8);
-    expect(new Set(ds.plan.sites.map((s) => s.vendor)).size).toBe(4);
+    expect(new Set(ds.plan.sites.map((s) => s.outsourcer)).size).toBe(4);
     for (const row of SITE_TABLE) {
       const site = ds.plan.sites.find((s) => s.id === row.id);
       expect(site).toMatchObject(row);
@@ -32,7 +32,7 @@ describe('demo dataset', () => {
     expect(ds.plan.weeks.at(-1)).toEqual({ index: 52, label: '2027-W52', start: '2027-12-27' });
   });
 
-  it('uses every line of business, language and channel', () => {
+  it('uses every business unit, language and channel', () => {
     expect(new Set(ds.units.map((u) => u.lob))).toEqual(new Set(['Mobile', 'Internet', 'Cable']));
     expect(new Set(ds.units.map((u) => u.language))).toEqual(new Set(['EN', 'FR', 'ES', 'TL']));
     expect(new Set(ds.units.map((u) => u.channel))).toEqual(new Set(['voice', 'chat', 'deferred']));
@@ -94,7 +94,7 @@ describe('demand shape', () => {
 describe('plan on the demo dataset', () => {
   it('Manila-1 breaches its contracted cap within the horizon', () => {
     const mnl1 = plan.sites.find((s) => s.site.id === 'MNL1')!;
-    const breached = mnl1.periods.filter((p) => p.rosteredFte > (mnl1.site.cap ?? Infinity));
+    const breached = mnl1.periods.filter((p) => p.requiredFte > (mnl1.site.cap ?? Infinity));
     expect(breached.length).toBeGreaterThan(0);
     expect(breached.every((p) => p.flow.capShortfall > 0)).toBe(true);
     expect(mnl1.periods.some((p) => p.flow.atCap)).toBe(true);
@@ -106,7 +106,7 @@ describe('plan on the demo dataset', () => {
       for (const p of sp.periods) {
         expect(p.volume).toBe(sum(p.units.map((u) => u.volume)));
         expect(p.workloadHours).toBeCloseTo(sum(p.units.map((u) => u.requirement.workloadHours)), 6);
-        expect(p.rosteredFte).toBeCloseTo(sum(p.units.map((u) => u.requirement.rosteredFte)), 6);
+        expect(p.requiredFte).toBeCloseTo(sum(p.units.map((u) => u.requirement.requiredFte)), 6);
       }
     }
   });
@@ -126,20 +126,20 @@ describe('plan on the demo dataset', () => {
     }
   });
 
-  it('every site trace ends on the gap and reproduces the grid values', () => {
+  it('every site trace ends on Over/Under and reproduces the grid values', () => {
     const p = plan.sites[0]!.periods[11]!;
     const step = (k: string) => p.trace.find((s) => s.key === k)?.value;
-    expect(step('rostered')).toBe(p.rosteredFte);
+    expect(step('required')).toBe(p.requiredFte);
     expect(step('flow.closing')).toBe(p.flow.closing);
-    expect(step('flow.gap')).toBe(p.flow.gap);
-    expect(p.trace.at(-1)?.key).toBe('flow.gap');
+    expect(step('flow.overUnder')).toBe(p.flow.overUnder);
+    expect(p.trace.at(-1)?.key).toBe('flow.overUnder');
   });
 
-  it('hires for a deficit once: after a class lands, only cap shortfall remains', () => {
+  it('hires for a deficit once: after a class lands, a site is under only by its cap shortfall', () => {
     for (const sp of plan.sites) {
       for (const p of sp.periods) {
         if (!p.flow.classPossible) continue;
-        expect(p.flow.gap, `${sp.site.id} ${p.weekLabel}`).toBeLessThanOrEqual(p.flow.capShortfall + 1e-9);
+        expect(-p.flow.overUnder, `${sp.site.id} ${p.weekLabel}`).toBeLessThanOrEqual(p.flow.capShortfall + 1e-9);
       }
     }
   });
@@ -189,9 +189,9 @@ describe('filtered slices', () => {
     const other = engine.sliceSitePeriod(p, (u) => u.channel !== 'voice')!;
     expect(voice.allocated && other.allocated).toBe(true);
     expect(voice.volume + other.volume).toBe(p.volume);
-    expect(voice.rosteredFte + other.rosteredFte).toBeCloseTo(p.rosteredFte, 9);
+    expect(voice.requiredFte + other.requiredFte).toBeCloseTo(p.requiredFte, 9);
     expect(voice.closing + other.closing).toBeCloseTo(p.flow.closing, 9);
-    expect(voice.gap + other.gap).toBeCloseTo(p.flow.gap, 9);
+    expect(voice.overUnder + other.overUnder).toBeCloseTo(p.flow.overUnder, 9);
     expect(voice.share + other.share).toBeCloseTo(1, 12);
   });
 

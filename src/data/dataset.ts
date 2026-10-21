@@ -26,12 +26,12 @@ export const CHANNELS = ['voice', 'chat', 'deferred'] as const satisfies readonl
 export type LineOfBusiness = (typeof LINES_OF_BUSINESS)[number];
 export type Language = (typeof LANGUAGES)[number];
 
-export const VENDORS = ['Teleperformance', 'Telus International', 'Accenture', 'In-house'] as const;
-export type Vendor = (typeof VENDORS)[number];
+export const OUTSOURCERS = ['Teleperformance', 'Telus International', 'Accenture', 'In-house'] as const;
+export type Outsourcer = (typeof OUTSOURCERS)[number];
 
 interface SiteRow {
   id: string;
-  vendor: Vendor;
+  outsourcer: Outsourcer;
   name: string;
   country: string;
   workWeekHours: number;
@@ -44,14 +44,14 @@ interface SiteRow {
 
 /** Brief section 4, verbatim. */
 export const SITE_TABLE: readonly SiteRow[] = [
-  { id: 'MNL1', vendor: 'Teleperformance', name: 'Manila-1', country: 'PH', workWeekHours: 45.0, occupancyCeiling: 0.85, shrinkage: 0.305, monthlyAttrition: 0.052, cap: 980, openingHeadcount: 944 },
-  { id: 'MNL2', vendor: 'Teleperformance', name: 'Manila-2', country: 'PH', workWeekHours: 45.0, occupancyCeiling: 0.85, shrinkage: 0.298, monthlyAttrition: 0.049, cap: null, openingHeadcount: 808 },
-  { id: 'CAI', vendor: 'Teleperformance', name: 'Cairo', country: 'EG', workWeekHours: 42.5, occupancyCeiling: 0.85, shrinkage: 0.284, monthlyAttrition: 0.041, cap: null, openingHeadcount: 522 },
-  { id: 'KIN', vendor: 'Telus International', name: 'Kingston', country: 'JM', workWeekHours: 40.0, occupancyCeiling: 0.85, shrinkage: 0.312, monthlyAttrition: 0.058, cap: 520, openingHeadcount: 433 },
-  { id: 'CAN', vendor: 'Telus International', name: 'Guangzhou', country: 'CN', workWeekHours: 44.0, occupancyCeiling: 0.85, shrinkage: 0.276, monthlyAttrition: 0.037, cap: null, openingHeadcount: 581 },
-  { id: 'SZX', vendor: 'Accenture', name: 'Shenzhen', country: 'CN', workWeekHours: 44.0, occupancyCeiling: 0.85, shrinkage: 0.271, monthlyAttrition: 0.035, cap: null, openingHeadcount: 621 },
-  { id: 'MEX', vendor: 'Accenture', name: 'Mexico City', country: 'MX', workWeekHours: 42.0, occupancyCeiling: 0.85, shrinkage: 0.319, monthlyAttrition: 0.061, cap: null, openingHeadcount: 579 },
-  { id: 'YYZ', vendor: 'In-house', name: 'Toronto', country: 'CA', workWeekHours: 37.5, occupancyCeiling: 0.82, shrinkage: 0.246, monthlyAttrition: 0.022, cap: null, openingHeadcount: 267 },
+  { id: 'MNL1', outsourcer: 'Teleperformance', name: 'Manila-1', country: 'PH', workWeekHours: 45.0, occupancyCeiling: 0.85, shrinkage: 0.305, monthlyAttrition: 0.052, cap: 980, openingHeadcount: 944 },
+  { id: 'MNL2', outsourcer: 'Teleperformance', name: 'Manila-2', country: 'PH', workWeekHours: 45.0, occupancyCeiling: 0.85, shrinkage: 0.298, monthlyAttrition: 0.049, cap: null, openingHeadcount: 808 },
+  { id: 'CAI', outsourcer: 'Teleperformance', name: 'Cairo', country: 'EG', workWeekHours: 42.5, occupancyCeiling: 0.85, shrinkage: 0.284, monthlyAttrition: 0.041, cap: null, openingHeadcount: 522 },
+  { id: 'KIN', outsourcer: 'Telus International', name: 'Kingston', country: 'JM', workWeekHours: 40.0, occupancyCeiling: 0.85, shrinkage: 0.312, monthlyAttrition: 0.058, cap: 520, openingHeadcount: 433 },
+  { id: 'CAN', outsourcer: 'Telus International', name: 'Guangzhou', country: 'CN', workWeekHours: 44.0, occupancyCeiling: 0.85, shrinkage: 0.276, monthlyAttrition: 0.037, cap: null, openingHeadcount: 581 },
+  { id: 'SZX', outsourcer: 'Accenture', name: 'Shenzhen', country: 'CN', workWeekHours: 44.0, occupancyCeiling: 0.85, shrinkage: 0.271, monthlyAttrition: 0.035, cap: null, openingHeadcount: 621 },
+  { id: 'MEX', outsourcer: 'Accenture', name: 'Mexico City', country: 'MX', workWeekHours: 42.0, occupancyCeiling: 0.85, shrinkage: 0.319, monthlyAttrition: 0.061, cap: null, openingHeadcount: 579 },
+  { id: 'YYZ', outsourcer: 'In-house', name: 'Toronto', country: 'CA', workWeekHours: 37.5, occupancyCeiling: 0.82, shrinkage: 0.246, monthlyAttrition: 0.022, cap: null, openingHeadcount: 267 },
 ];
 
 interface Coverage {
@@ -61,7 +61,7 @@ interface Coverage {
   channels: readonly Channel[];
   /** Chat sessions per agent, where the site runs chat. */
   concurrency?: number;
-  /** Rostered requirement in a season-neutral week, as a multiple of opening HC. */
+  /** Required requirement in a season-neutral week, as a multiple of opening HC. */
   loadFactor: number;
 }
 
@@ -106,7 +106,7 @@ const BASE_AHT: Readonly<Record<Channel, Readonly<Record<LineOfBusiness, number>
 const LOB_CODE: Readonly<Record<LineOfBusiness, string>> = { Mobile: 'MOB', Internet: 'INT', Cable: 'CAB' };
 const CHANNEL_CODE: Readonly<Record<Channel, string>> = { voice: 'VO', chat: 'CH', deferred: 'DF' };
 
-/** Smallest class a vendor runs. Smaller needs round up to it. */
+/** Smallest class a outsourcer runs. Smaller needs round up to it. */
 export const MIN_CLASS_SIZE = 8;
 
 export const CONSTANTS: PlanConstants = {
@@ -140,7 +140,7 @@ export interface UnitMeta extends PlanningUnit {
 export interface Dataset {
   seed: number;
   plan: PlanInput;
-  vendors: readonly Vendor[];
+  outsourcers: readonly Outsourcer[];
   units: readonly UnitMeta[];
   assumptions: readonly AssumptionRecord[];
 }
@@ -193,7 +193,7 @@ export function buildDataset(seed = SEED): Dataset {
       ),
     );
     const totalWeight = drafts.reduce((s, d) => s + d.weight, 0);
-    const siteRostered = site.openingHeadcount * cov.loadFactor;
+    const siteRequired = site.openingHeadcount * cov.loadFactor;
 
     for (const d of drafts) {
       const unit: UnitMeta = { id: d.id, siteId: site.id, lob: d.lob, language: d.language, channel: d.channel };
@@ -206,9 +206,9 @@ export function buildDataset(seed = SEED): Dataset {
       }
       units.push(unit);
 
-      // Volume that produces this unit's share of the rostered requirement.
+      // Volume that produces this unit's share of the required requirement.
       const occ = d.channel === 'deferred' ? 1 : site.occupancyCeiling;
-      const productiveHours = siteRostered * (d.weight / totalWeight) * (1 - site.shrinkage) * site.workWeekHours * occ;
+      const productiveHours = siteRequired * (d.weight / totalWeight) * (1 - site.shrinkage) * site.workWeekHours * occ;
       const baseVolume = (productiveHours * 3600) / handleSeconds;
 
       const noise = streamFor(seed, `weekly:${d.id}`);
@@ -224,7 +224,7 @@ export function buildDataset(seed = SEED): Dataset {
   }
 
   const plan: PlanInput = { isoYear: ISO_YEAR, weeks, constants: CONSTANTS, sites, units, demand };
-  return { seed, plan, vendors: VENDORS, units, assumptions: assumptionRegister(sites) };
+  return { seed, plan, outsourcers: OUTSOURCERS, units, assumptions: assumptionRegister(sites) };
 }
 
 function coverageFor(siteId: string): Coverage {
@@ -245,7 +245,7 @@ function assumptionRegister(sites: readonly SiteInput[]): AssumptionRecord[] {
     records.push({ code: `GLB.CEF${c}`, label: `Chat efficiency at concurrency ${c}`, value: DEFAULT_CHAT_EFFICIENCY[c] ?? null, unit: 'ratio', scope: 'Global' });
   }
   for (const s of sites) {
-    const scope = `${s.vendor} / ${s.name}`;
+    const scope = `${s.outsourcer} / ${s.name}`;
     records.push(
       { code: s.codes.workWeekHours, label: 'Work week', value: s.workWeekHours, unit: 'hours', scope },
       { code: s.codes.occupancyCeiling, label: 'Occupancy ceiling', value: s.occupancyCeiling, unit: 'ratio', scope },
