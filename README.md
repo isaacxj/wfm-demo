@@ -1,4 +1,4 @@
-# WFM Capacity Planner (demo)
+# WFM Capacity Planner (mvp demo)
 
 Multi-vendor contact centre capacity planning. Takes a weekly demand forecast
 and produces required headcount per site, the gap against supply after
