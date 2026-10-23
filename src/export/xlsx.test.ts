@@ -6,7 +6,8 @@ import { ALL_FILTERS, buildRows } from '../app/model.ts';
 import { demoDataset } from '../data/dataset.ts';
 import { engine } from '../engine/index.ts';
 import { applyScenario, type Scenario } from '../scenario/scenario.ts';
-import { compareWorkbook, fileName, hiringWorkbook, planWorkbook, type ExportContext } from './xlsx.ts';
+import { buildPeriodRows } from '../app/periods.ts';
+import { compareWorkbook, fileName, hiringWorkbook, periodsWorkbook, planWorkbook, type ExportContext } from './xlsx.ts';
 
 const ds = demoDataset();
 const basePlan = engine.computePlan(ds.plan);
@@ -165,6 +166,26 @@ describe('hiring export', async () => {
     const cell = ws.getCell('E7');
     expect(cell.value).toBeInstanceOf(Date);
     expect((cell.value as Date).toISOString().slice(0, 10)).toBe(hp.classes[0]!.startDate);
+  });
+});
+
+describe('periods export', async () => {
+  const model = buildPeriodRows(basePlan, ALL_FILTERS, 'outsourcer');
+  const wb = await roundTrip(periodsWorkbook(ExcelJS, model, ds.plan.weeks, 'overUnder', ctx, 'Over-Under by week', {}));
+  const ws = wb.getWorksheet('Over-Under by week')!;
+
+  it('puts one week per column under merged month bands', () => {
+    expect(ws.getCell('B4').value).toBe('JAN 2027');
+    expect(ws.getCell('B5').value).toBe('W01');
+    expect(ws.getCell('BA5').value).toBe('W52');
+    expect(ws.getCell('C4').master.address).toBe('B4');
+  });
+
+  it('keeps every week column live and reconciled', () => {
+    expect(expectSubtotalsAddUp(ws)).toBeGreaterThan(52 * 4);
+    const total = model.rows.at(-1)!;
+    const r = 6 + model.rows.length - 1;
+    expect(num(ws.getCell(`M${r}`))).toBeCloseTo(total.byWeek[11]!.cells.overUnder!, 6);
   });
 });
 

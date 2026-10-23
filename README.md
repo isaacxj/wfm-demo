@@ -31,7 +31,7 @@ Statixx Solutions. All data in this repository is invented.
 | 6 | Excel export | Done |
 | 7 | Deploy | GitHub Pages, on every push to `main` |
 | v2.1 | Terminology: industry names, Over/Under sign, shrinkage convention | Done |
-| v2.2 | Grid orientation: Periods and Metrics modes | Not started |
+| v2.2 | Grid orientation: Periods and Metrics modes; density | Done |
 | v2.3 | Actuals, plan and scenario bands | Not started |
 | v2.4 | Pause recalculation; class constraints | Not started |
 | v2.5 | Bulk entry; Staff Type | Not started |
@@ -49,9 +49,12 @@ invented 2027 dataset: 8 sites, 4 outsourcers, 68 planning units, 52 weeks.
 ### 1. Open the locked production plan and read the grid
 
 The app opens on **FY27 Production Plan v3**, scenario **Baseline**, marked
-**LOCKED**, at week **2027-W12**. Rows are each outsourcer, its sites, a
-subtotal, then the grand total. Columns run demand → requirement → supply →
-over/under and hiring. Step through weeks with ‹ ›; filter by business unit,
+**LOCKED**, in **Periods** mode: one column per week of 2027 under month bands,
+rows for each outsourcer, its sites, a subtotal, then the grand total, and
+**Over/Under** in every cell. Read the whole year for every site in one pass:
+Manila-1 runs under in the marketing-spike weeks W31 to W34. **Metric** switches
+the number shown. **Metrics** (top right) turns the grid round to one week with
+columns running demand → requirement → supply → over/under and hiring. Step through weeks with ‹ ›; filter by business unit,
 language and channel; regroup by country. Subtotals add the displayed site values exactly.
 Faint left markers show the input cells a planner may change. Manila-1 carries
 a **CAP** flag whenever its headcount sits at its contracted cap of 980.
@@ -173,6 +176,16 @@ from, and roll-ups carry their sub-chains: a site's demand carries each
 planning unit's trace, a week's opening headcount carries the prior week's.
 
 ## Plan grid
+
+Two orientations, chosen top right and remembered for the session.
+**Periods** (default) puts weeks across the columns, months as bands with a
+heavier rule at each month start, each week labelled by ISO week over its
+Monday date, and one metric in the cells: Volume, AHT, Productive FTE,
+Required FTE, Planned FTE, Over/Under or Hire need. **Metrics** shows one week
+with every metric across the columns. Both use the same rows, filters and
+grouping; the selected cell carries across, and clicking a week column moves
+the focus week. **Density** switches between comfortable 25px rows and compact
+21px rows. Export saves whichever orientation is on screen.
 
 Opens on the locked FY27 production plan at week 2027-W12. Rows are an
 outsourcer header, its sites and a subtotal, then a grand total; grouping switches to

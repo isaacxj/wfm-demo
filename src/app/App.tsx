@@ -10,9 +10,11 @@ import { Inspector, planTarget, type InspectorTarget } from './components/Inspec
 import { Rail, type View } from './components/Rail.tsx';
 import { ScenarioBar, type DraftOverride } from './components/ScenarioBar.tsx';
 import { StatusBar } from './components/StatusBar.tsx';
-import { Toolbar } from './components/Toolbar.tsx';
+import { PeriodsGrid, type Density } from './components/PeriodsGrid.tsx';
+import { Toolbar, type GridMode } from './components/Toolbar.tsx';
+import { buildPeriodRows, DEFAULT_PERIOD_METRIC, isPeriodMetric } from './periods.ts';
 import { TopBar } from './components/TopBar.tsx';
-import { compareWorkbook, fileName, hiringWorkbook, planWorkbook, type ExportContext } from '../export/xlsx.ts';
+import { compareWorkbook, fileName, hiringWorkbook, periodsWorkbook, planWorkbook, type ExportContext } from '../export/xlsx.ts';
 import { downloadWorkbook } from '../export/download.ts';
 import { formatDelta, formatValue, type Formatted } from './format.ts';
 import { buildHiringPlan } from './hiring.ts';
@@ -61,6 +63,27 @@ function readStored<T>(key: string, fallback: T, parse: (raw: string) => T): T {
   }
 }
 
+const MODE_KEY = 'capacity-planner.grid-mode';
+const DENSITY_KEY = 'capacity-planner.density';
+
+/** Per-session preference: survives reloads in this tab, not across sessions. */
+function readSession<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const v = window.sessionStorage.getItem(key);
+    return v !== null && (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeSession(key: string, value: string): void {
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Preference only; ignore storage failures.
+  }
+}
+
 function writeStored(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value);
@@ -98,6 +121,9 @@ export function App() {
   const [outsourcerFilter, setOutsourcerFilter] = useState<ReadonlySet<string>>(() => new Set(dataset.outsourcers));
   const [hiringSel, setHiringSel] = useState<HiringRef | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [gridMode, setGridMode] = useState<GridMode>(() => readSession<GridMode>(MODE_KEY, ['periods', 'metrics'], 'periods'));
+  const [density, setDensity] = useState<Density>(() => readSession<Density>(DENSITY_KEY, ['comfortable', 'compact'], 'comfortable'));
+  const [periodMetric, setPeriodMetric] = useState<NumericKey>(DEFAULT_PERIOD_METRIC);
 
   useEffect(() => writeStored(SCENARIOS_KEY, JSON.stringify(scenarios)), [scenarios]);
 
@@ -175,6 +201,36 @@ export function App() {
     setHiringSel(null);
   }, []);
 
+  const changeMode = useCallback(
+    (m: GridMode) => {
+      writeSession(MODE_KEY, m);
+      setGridMode(m);
+      // Keep the selected number in view: Periods shows one metric, so show the selected one.
+      if (m === 'periods' && selected && !selected.side && isPeriodMetric(selected.key)) setPeriodMetric(selected.key);
+    },
+    [selected],
+  );
+
+  /** Periods shows one metric: changing it keeps the selected row and week, on the new metric. */
+  const changePeriodMetric = useCallback((m: NumericKey) => {
+    setPeriodMetric(m);
+    setSelected((sel) => (sel && !sel.side ? { rowId: sel.rowId, key: m } : sel));
+  }, []);
+
+  const changeDensity = useCallback((d: Density) => {
+    writeSession(DENSITY_KEY, d);
+    setDensity(d);
+  }, []);
+
+  const selectPeriodCell = useCallback(
+    (rowId: string, w: number) => {
+      setWeek(w);
+      setSelected({ rowId, key: periodMetric });
+      setInspectorOpen(true);
+    },
+    [periodMetric],
+  );
+
   const selectClass = useCallback((ref: HiringRef | null) => {
     setHiringSel(ref);
     if (ref) setInspectorOpen(true);
@@ -192,6 +248,10 @@ export function App() {
   const shownPlan = scen?.plan ?? basePlan;
   const opts = useMemo(() => ({ week, filters, grouping }), [week, filters, grouping]);
   const rows = useMemo(() => buildRows(shownPlan, opts), [shownPlan, opts]);
+  const periodModel = useMemo(
+    () => (view === 'plans' && gridMode === 'periods' ? buildPeriodRows(shownPlan, filters, grouping) : null),
+    [view, gridMode, shownPlan, filters, grouping],
+  );
   const compare = useMemo(
     () => (view === 'scenarios' && scen ? buildCompare(basePlan, scen.plan, opts, changedOnly) : null),
     [view, scen, opts, changedOnly],
@@ -287,6 +347,22 @@ export function App() {
             }),
           fileName([PLAN_TITLE, scenarioPart, 'compare', wk?.label ?? '']),
         );
+      } else if (view === 'plans' && periodModel) {
+        const hp = buildHiringPlan(shownPlan, dataset.plan.constants, dataset.plan.isoYear);
+        const metricName = columnSpec(periodMetric).header;
+        await downloadWorkbook(
+          (lib) =>
+            periodsWorkbook(
+              lib,
+              periodModel,
+              basePlan.weeks,
+              periodMetric,
+              { ...ctx, context: ctx.context.replace(/^Week [^·]*· /, `${metricName} by week · `) },
+              `${metricName.replace('/', '-')} by week`,
+              { hiring: hp, assumptions: dataset.assumptions, scenario: active, siteName },
+            ),
+          fileName([PLAN_TITLE, scenarioPart, metricName.replace('/', '-'), 'by-week']),
+        );
       } else if (view === 'plans') {
         const hp = buildHiringPlan(shownPlan, dataset.plan.constants, dataset.plan.isoYear);
         await downloadWorkbook(
@@ -303,7 +379,7 @@ export function App() {
     } finally {
       setExporting(false);
     }
-  }, [week, active, grouping, filters, view, hiringPlan, scen, summary, opts, metrics, shownPlan, rows, hidden]);
+  }, [week, active, grouping, filters, view, hiringPlan, scen, summary, opts, metrics, shownPlan, rows, hidden, periodModel, periodMetric]);
 
   const canExport = view === 'plans' || view === 'hiring' || (view === 'scenarios' && active !== null);
 
@@ -312,6 +388,7 @@ export function App() {
     hiddenSet: ReadonlySet<ColumnKey>,
     onHidden: (h: ReadonlySet<ColumnKey>) => void,
     extra?: ReactNode,
+    withMode = false,
   ) => (
     <Toolbar
       weeks={basePlan.weeks}
@@ -324,6 +401,12 @@ export function App() {
       hidden={hiddenSet}
       onHidden={onHidden}
       columnChoices={choices}
+      mode={withMode ? gridMode : undefined}
+      onMode={withMode ? changeMode : undefined}
+      density={density}
+      onDensity={changeDensity}
+      metric={periodMetric}
+      onMetric={changePeriodMetric}
     >
       {extra}
     </Toolbar>
@@ -345,10 +428,28 @@ export function App() {
         onSelect={selectClass}
       />
     );
+  } else if (view === 'plans' && periodModel) {
+    main = (
+      <>
+        {toolbar(undefined, hidden, setHidden, undefined, true)}
+        <div className="grid-scroll">
+          <PeriodsGrid
+            model={periodModel}
+            weeks={basePlan.weeks}
+            metric={periodMetric}
+            grouping={grouping}
+            density={density}
+            focusWeek={week}
+            selected={selected && !selected.side ? selected : null}
+            onSelect={selectPeriodCell}
+          />
+        </div>
+      </>
+    );
   } else if (view === 'plans') {
     main = (
       <>
-        {toolbar(undefined, hidden, setHidden)}
+        {toolbar(undefined, hidden, setHidden, undefined, true)}
         <div className="grid-scroll">
           <Grid
             rows={rows}
@@ -440,7 +541,7 @@ export function App() {
   }
 
   return (
-    <div className={`shell ${inspectorOpen ? '' : 'inspector-collapsed'}`}>
+    <div className={`shell ${inspectorOpen ? '' : 'inspector-collapsed'}`} data-density={density}>
       <TopBar
         weeks={basePlan.weeks}
         scenarios={scenarios}

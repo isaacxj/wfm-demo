@@ -1,3 +1,4 @@
+import type { PlanWeek } from '../../engine/index.ts';
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { useMemo } from 'react';
 import { formatValue, NOT_APPLICABLE, type Formatted } from '../format.ts';
@@ -9,6 +10,9 @@ declare module '@tanstack/react-table' {
     /** Comparison grid: the metric and side a leaf column shows. */
     metric?: NumericKey;
     side?: 'base' | 'scen' | 'delta';
+    /** Periods grid: the week a leaf column shows, and its position in the horizon. */
+    week?: PlanWeek;
+    weekIndex?: number;
   }
 }
 

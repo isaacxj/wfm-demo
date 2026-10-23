@@ -13,8 +13,12 @@ import {
   type FilterKey,
   type Filters,
   type Grouping,
+  type NumericKey,
+  columnSpec,
 } from '../model.ts';
+import { PERIOD_METRICS } from '../periods.ts';
 import { Caret, Check, Close, StepLeft, StepRight } from './icons.tsx';
+import type { Density } from './PeriodsGrid.tsx';
 import { Menu } from './Menu.tsx';
 
 interface ToolbarProps {
@@ -31,12 +35,24 @@ interface ToolbarProps {
   columnChoices?: readonly ColumnKey[];
   /** Extra controls after the filter chips. */
   children?: ReactNode;
+  /** Periods / Metrics orientation; omitted where the view has only one. */
+  mode?: GridMode;
+  onMode?: (m: GridMode) => void;
+  density?: Density;
+  onDensity?: (d: Density) => void;
+  /** Periods mode: the one metric that fills the grid. */
+  metric?: NumericKey;
+  onMetric?: (m: NumericKey) => void;
 }
+
+export type GridMode = 'periods' | 'metrics';
 
 const valueLabel = (key: FilterKey, v: string) => (key === 'channel' ? (CHANNEL_LABEL[v] ?? v) : v);
 
 export function Toolbar(props: ToolbarProps) {
   const { weeks, week, onWeek, grouping, onGrouping, filters, onFilters, hidden, onHidden, children } = props;
+  const { mode, onMode, density, onDensity, metric, onMetric } = props;
+  const periods = mode === 'periods';
   const choices = props.columnChoices ?? COLUMNS.filter((c) => c.key !== 'site').map((c) => c.key);
   const shownCount = choices.filter((k) => !hidden.has(k)).length;
   const current = weeks[week - 1];
@@ -83,6 +99,36 @@ export function Toolbar(props: ToolbarProps) {
           }
         </Menu>
       </div>
+
+      {periods && metric && onMetric && (
+        <div className="tl-seg">
+          <Menu
+            trigger={(p) => (
+              <button className="tl-button" {...p}>
+                <span className="tl-key">Metric</span> {columnSpec(metric).header} <Caret />
+              </button>
+            )}
+          >
+            {(close) =>
+              PERIOD_METRICS.map((m) => (
+                <button
+                  key={m}
+                  className="menu-item"
+                  role="menuitemradio"
+                  aria-checked={m === metric}
+                  onClick={() => {
+                    onMetric(m);
+                    close();
+                  }}
+                >
+                  <span className="tick">{m === metric && <Check />}</span>
+                  {columnSpec(m).header}
+                </button>
+              ))
+            }
+          </Menu>
+        </div>
+      )}
 
       <div className="tl-seg">
         <button className="tl-button tl-step" aria-label="Previous week" disabled={week <= 1} onClick={() => onWeek(week - 1)}>
@@ -192,6 +238,33 @@ export function Toolbar(props: ToolbarProps) {
 
       {filtered && <div className="tl-note">Supply split by share of required FTE</div>}
 
+      {mode && onMode && (
+        <div className="tl-seg end">
+          <span className="seg-group" role="group" aria-label="Orientation">
+            <button aria-pressed={mode === 'periods'} onClick={() => onMode('periods')} title="Weeks across the columns, one metric">
+              Periods
+            </button>
+            <button aria-pressed={mode === 'metrics'} onClick={() => onMode('metrics')} title="One week, metrics across the columns">
+              Metrics
+            </button>
+          </span>
+        </div>
+      )}
+      {density && onDensity && (
+        <div className="tl-seg end">
+          <span className="tl-key">Density</span>
+          <span className="seg-group" role="group" aria-label="Density">
+            <button aria-pressed={density === 'comfortable'} onClick={() => onDensity('comfortable')}>
+              Comfortable
+            </button>
+            <button aria-pressed={density === 'compact'} onClick={() => onDensity('compact')}>
+              Compact
+            </button>
+          </span>
+        </div>
+      )}
+
+      {!periods && (
       <div className="tl-seg end">
         <Menu
           align="right"
@@ -237,6 +310,7 @@ export function Toolbar(props: ToolbarProps) {
           )}
         </Menu>
       </div>
+      )}
     </div>
   );
 }

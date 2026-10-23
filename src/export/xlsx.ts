@@ -13,6 +13,8 @@ import type ExcelJS from 'exceljs';
 import { deltaOf, type CompareModel, type HorizonSummary } from '../app/compare.ts';
 import { displayRound } from '../app/format.ts';
 import type { HiringPlan } from '../app/hiring.ts';
+import { monthOf, type PeriodModel } from '../app/periods.ts';
+import type { PlanWeek } from '../engine/index.ts';
 import { COLUMNS, columnSpec, type ColumnKey, type GridRow, type NumericKey } from '../app/model.ts';
 import type { AssumptionRecord } from '../data/dataset.ts';
 import { describeChange, describeScope, describeWhen, OVERRIDE_LABEL, type Scenario } from '../scenario/scenario.ts';
@@ -313,6 +315,38 @@ export function planWorkbook(
     cells: visible.slice(1).map((c, j) => planCell(row, c.key, j + 2, ranges.get(i))),
   }));
   writeRows(ws, first, cols, out, rows.some((r) => r.kind === 'group'));
+  if (extras.hiring) hiringSheet(wb, extras.hiring, ctx);
+  if (extras.scenario) overridesSheet(wb, extras.scenario, null, ctx, extras.siteName ?? ((id) => id));
+  if (extras.assumptions) assumptionsSheet(wb, extras.assumptions, ctx);
+  return wb;
+}
+
+/** Periods grid: one metric, one column per week, months as merged bands. */
+export function periodsWorkbook(
+  lib: Lib,
+  model: PeriodModel,
+  weeks: readonly PlanWeek[],
+  metric: NumericKey,
+  ctx: ExportContext,
+  sheetName: string,
+  extras: { hiring?: HiringPlan; assumptions?: readonly AssumptionRecord[]; scenario?: Scenario | null; siteName?: (id: string) => string },
+): ExcelJS.Workbook {
+  const wb = newWorkbook(lib, ctx);
+  const header = columnSpec(metric).header;
+  const cols: Col[] = [
+    { header: `Site · ${header}`, band: 'Site', width: 34 },
+    ...weeks.map((w) => ({ header: w.label.slice(5), band: monthOf(w).label, width: metric === 'volume' ? 11 : 9 })),
+  ];
+  const ws = addSheet(wb, sheetName, `${ctx.planName} · ${ctx.scenarioName ?? 'Baseline'} · ${header} by week`, ctx.context, cols, CONVENTIONS);
+  const first = 6;
+  const ranges = aggregateRanges(model.rows, first);
+  const out: Row[] = model.rows.map((row, i) => ({
+    kind: row.kind,
+    label: row.label,
+    sub: row.code,
+    cells: row.byWeek.map((g, w) => planCell(g, metric, w + 2, ranges.get(i))),
+  }));
+  writeRows(ws, first, cols, out, model.rows.some((r) => r.kind === 'group'));
   if (extras.hiring) hiringSheet(wb, extras.hiring, ctx);
   if (extras.scenario) overridesSheet(wb, extras.scenario, null, ctx, extras.siteName ?? ((id) => id));
   if (extras.assumptions) assumptionsSheet(wb, extras.assumptions, ctx);

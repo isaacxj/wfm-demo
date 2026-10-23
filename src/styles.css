@@ -1596,3 +1596,83 @@ tr.site .id-cell {
   margin-top: 4px;
   font-weight: 600;
 }
+
+/* Orientation, density, periods grid ------------------------------------- */
+
+.seg-group {
+  display: inline-flex;
+  border: 1px solid var(--line-2);
+  background: var(--surface-0);
+}
+
+.seg-group button {
+  height: 22px;
+  padding: 0 9px;
+  border-left: 1px solid var(--line-2);
+  font-size: 11px;
+  color: var(--ink-600);
+  white-space: nowrap;
+}
+
+.seg-group button:first-child {
+  border-left: 0;
+}
+
+.seg-group button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.tl-seg.end .tl-key {
+  font-size: 11px;
+  margin-right: 4px;
+}
+
+.shell[data-density="compact"] {
+  --row-h: 21px;
+}
+
+.shell[data-density="compact"] .grid th,
+.shell[data-density="compact"] .grid td {
+  padding: 0 5px;
+}
+
+.grid.periods .head th.week {
+  text-align: right;
+  line-height: 11px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.grid.periods .head th.week .wk,
+.grid.periods .head th.week .wd {
+  display: block;
+}
+
+.grid.periods .head th.week .wd {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-400);
+}
+
+.grid.periods th.month-start,
+.grid.periods td.month-start {
+  border-left: 1px solid var(--ink-400);
+}
+
+.grid.periods .head th.focus {
+  background: var(--accent-soft);
+  color: var(--ink-900);
+}
+
+.grid.periods tr.site td.focus {
+  background: var(--surface-1);
+}
+
+.grid .head th .metric-tag {
+  margin-left: 6px;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
