@@ -17,6 +17,12 @@
  * deficit whose class would have to start before the horizon cannot be hired
  * for and remains as a lead-time shortfall. Demand above a contracted cap
  * remains as a cap shortfall. Both show as a negative over/under.
+ *
+ * Class constraints limit how many may start in the ideal week. What does not
+ * fit is returned as unplaced starters; the plan moves them to an earlier
+ * week. Their graduates land early, and until the week they were hired for
+ * they are reserved: in supply, but not counted against this week's deficit,
+ * so an early class is extra cover rather than a substitute for this week's.
  */
 import { assertFraction, assertNonNegative, REQUIRED_FTE_NOTE } from './requirement.ts';
 import { periodAttritionRate } from './supply.ts';
@@ -43,6 +49,12 @@ export interface SiteWeekInput {
   minClassSize?: number;
   trainingWeeks: number;
   nestingWeeks: number;
+  /** Class constraints on the ideal start week. Unlimited if absent. */
+  startLimits?: StartLimits;
+  /** Graduates of classes moved earlier, landing this week. */
+  earlyGraduates?: number;
+  /** Heads in supply hired early for a later week, not counted against this week's deficit. */
+  reserved?: number;
   codes?: {
     opening?: string;
     monthlyAttrition?: string;
@@ -56,6 +68,16 @@ export interface SiteWeekInput {
   };
 }
 
+export interface StartLimits {
+  maxClassSize: number;
+  maxClassesPerWeek: number;
+  /** Starters already moved into the start week from later weeks. */
+  taken: number;
+  /** The start week is blocked, and why, e.g. "W12 blocked (Holy Week)". */
+  blocked?: string;
+  codes?: { maxClassSize?: string; maxClassesPerWeek?: string; blocked?: string };
+}
+
 export interface SiteWeekResult {
   opening: number;
   attritionRate: number;
@@ -64,6 +86,10 @@ export interface SiteWeekResult {
   committedHires: number;
   /** Graduates of the recommended class that land after the cap. */
   classGraduates: number;
+  /** Graduates of classes moved earlier that land this week, after the cap. */
+  earlyGraduates: number;
+  /** Heads in supply reserved for later weeks. */
+  reserved: number;
   /** Committed hires plus class graduates: the grid's Hires prod. */
   hiresProductive: number;
   /** Committed hires the cap held back. */
@@ -81,6 +107,8 @@ export interface SiteWeekResult {
   /** Deficit a class could not reach in time. */
   leadTimeShortfall: number;
   hiresToStart: number;
+  /** Starters needed that the ideal start week has no room for. The plan moves them earlier. */
+  unplacedStarters: number;
   leadWeeks: number;
   /** Week the class starts. May precede the horizon. */
   startPeriod: number;
@@ -137,15 +165,67 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
         [committedPlanned, capRef, opening, attrition, tin, tout],
       )
     : committedPlanned;
-  const before = t.calc(
-    'beforeClass',
-    'HC before new class',
-    retained + committed.value,
-    'heads',
-    'opening − attrition + transfers in − transfers out + committed hires',
-    `${retainedExpr}+${group(committed.expr)}`,
-    [opening, attrition, tin, tout, committed],
-  );
+  const earlyPlanned = input.earlyGraduates ?? 0;
+  let early: Ref | null = null;
+  if (earlyPlanned > 0) {
+    const planned = t.input('earlyPlanned', 'Graduates of classes moved earlier', earlyPlanned, 'heads');
+    early = capRef
+      ? t.calc(
+          'early',
+          'Early graduates landing (after cap)',
+          Math.max(0, Math.min(planned.value, capRef.value - retained - committed.value)),
+          'heads',
+          'min(early graduates, max(0, cap − retained HC − committed hires))',
+          `MAX(0,MIN(${planned.expr},${capRef.expr}-(${retainedExpr})-${group(committed.expr)}))`,
+          [planned, capRef, opening, attrition, tin, tout, committed],
+        )
+      : planned;
+  }
+  const before = early
+    ? t.calc(
+        'beforeClass',
+        'HC before new class',
+        retained + committed.value + early.value,
+        'heads',
+        'opening − attrition + transfers in − transfers out + committed hires + early graduates',
+        `${retainedExpr}+${group(committed.expr)}+${group(early.expr)}`,
+        [opening, attrition, tin, tout, committed, early],
+      )
+    : t.calc(
+        'beforeClass',
+        'HC before new class',
+        retained + committed.value,
+        'heads',
+        'opening − attrition + transfers in − transfers out + committed hires',
+        `${retainedExpr}+${group(committed.expr)}`,
+        [opening, attrition, tin, tout, committed],
+      );
+  let available = before;
+  // Early graduates landing now are hired for a later week too.
+  const reservedValue = (input.reserved ?? 0) + (early?.value ?? 0);
+  if (reservedValue > EPS) {
+    const carried = t.input('reservedCarried', 'Hired early, landed in earlier weeks', input.reserved ?? 0, 'heads');
+    const reserved = early
+      ? t.calc(
+          'reserved',
+          'Hired early for later weeks',
+          reservedValue,
+          'heads',
+          'carried + early graduates landing',
+          `${carried.expr}+${group(early.expr)}`,
+          [carried, early],
+        )
+      : t.calc('reserved', 'Hired early for later weeks', reservedValue, 'heads', 'carried from earlier weeks, after attrition', carried.expr, [carried]);
+    available = t.calc(
+      'available',
+      'HC available to this week',
+      before.value - reserved.value,
+      'heads',
+      'HC before new class − heads hired early for later weeks',
+      `${group(before.expr)}-${reserved.expr}`,
+      [before, reserved],
+    );
+  }
 
   // Recommended class.
   const required = t.input('required', 'Required FTE', input.requiredFte, 'FTE');
@@ -153,11 +233,11 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
   const deficit = t.calc(
     'deficit',
     'Deficit before new class',
-    Math.max(0, required.value - before.value),
+    Math.max(0, required.value - available.value),
     'FTE',
-    'max(0, required FTE − HC before new class)',
-    `MAX(0,${group(required.expr)}-${group(before.expr)})`,
-    [required, before],
+    available === before ? 'max(0, required FTE − HC before new class)' : 'max(0, required FTE − HC available to this week)',
+    `MAX(0,${group(required.expr)}-${group(available.expr)})`,
+    [required, available],
   );
   let hireable = deficit;
   let capShortfall = 0;
@@ -206,10 +286,13 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     [needed, lead],
   );
   const classPossible = start.value >= input.firstStartWeek;
+  const limits = input.startLimits;
+  if (limits?.blocked) t.note('startPeriod', `${limits.blocked}: no class starts that week.`);
 
   const tAttr = t.input('trainingAttrition', 'Training attrition', input.trainingAttrition, 'ratio', codes.trainingAttrition);
   let starters: Ref;
   let leadTimeShortfall = 0;
+  let unplaced = 0;
   if (classPossible) {
     const needed = t.calc(
       'startersNeeded',
@@ -221,6 +304,13 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
       [hireable, tAttr],
     );
     const minClass = t.input('minClassSize', 'Minimum class size', input.minClassSize ?? 1, 'heads', codes.minClassSize);
+    // The class wanted before constraints; when the start week cannot take it all, the step is named for what it is.
+    const fit = headroom ? Math.floor(headroom.value / (1 - tAttr.value) + EPS) : Infinity;
+    const wantedValue = needed.value > 0 ? Math.max(needed.value, Math.min(minClass.value, fit)) : 0;
+    const room = !limits ? Infinity : limits.blocked ? 0 : Math.max(0, limits.maxClassSize * limits.maxClassesPerWeek - limits.taken);
+    const binds = room < wantedValue;
+    const key = binds ? 'startersWanted' : 'hiresToStart';
+    const label = binds ? 'Starters wanted' : 'Hires to start';
     if (headroom) {
       // Round up to the minimum class only as far as graduates still fit under the cap.
       const room = t.calc(
@@ -233,8 +323,8 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
         [headroom, tAttr],
       );
       starters = t.calc(
-        'hiresToStart',
-        'Hires to start',
+        key,
+        label,
         needed.value > 0 ? Math.max(needed.value, Math.min(minClass.value, room.value)) : 0,
         'heads',
         'max(starters needed, min(minimum class, starters that fit)); none if none needed',
@@ -243,14 +333,36 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
       );
     } else {
       starters = t.calc(
-        'hiresToStart',
-        'Hires to start',
+        key,
+        label,
         needed.value > 0 ? Math.max(needed.value, minClass.value) : 0,
         'heads',
         'max(starters needed, minimum class size); none if none needed',
         `IF(${needed.expr}>0,MAX(${needed.expr},${minClass.expr}),0)`,
         [needed, minClass],
       );
+    }
+    if (binds) {
+      const wanted = starters;
+      const roomRef = startRoom(t, limits!);
+      starters = t.calc(
+        'hiresToStart',
+        'Hires to start in the start week',
+        Math.min(wanted.value, roomRef.value),
+        'heads',
+        'min(starters wanted, room in the start week)',
+        `MIN(${wanted.expr},${roomRef.expr})`,
+        [wanted, roomRef],
+      );
+      unplaced = t.calc(
+        'unplacedStarters',
+        'Starters moved to an earlier week',
+        wanted.value - starters.value,
+        'heads',
+        'starters wanted − hires to start',
+        `${group(wanted.expr)}-${group(starters.expr)}`,
+        [wanted, starters],
+      ).value;
     }
   } else {
     starters = t.calc('hiresToStart', 'Hires to start (start week precedes plan)', 0, 'heads', 'no class can land inside the lead time', '0', [start]);
@@ -286,15 +398,25 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
         [starters, tAttr],
       );
 
-  const hires = t.calc(
-    'hiresProductive',
-    'Hires productive',
-    committed.value + graduates.value,
-    'heads',
-    'committed hires + class graduates',
-    `${group(committed.expr)}+${group(graduates.expr)}`,
-    [committed, graduates],
-  );
+  const hires = early
+    ? t.calc(
+        'hiresProductive',
+        'Hires productive',
+        committed.value + early.value + graduates.value,
+        'heads',
+        'committed hires + early graduates + class graduates',
+        `${group(committed.expr)}+${group(early.expr)}+${group(graduates.expr)}`,
+        [committed, early, graduates],
+      )
+    : t.calc(
+        'hiresProductive',
+        'Hires productive',
+        committed.value + graduates.value,
+        'heads',
+        'committed hires + class graduates',
+        `${group(committed.expr)}+${group(graduates.expr)}`,
+        [committed, graduates],
+      );
   const closing = t.calc(
     'closing',
     'Planned FTE (closing HC)',
@@ -320,6 +442,8 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     attrition: attrition.value,
     committedHires: committed.value,
     classGraduates: graduates.value,
+    earlyGraduates: early?.value ?? 0,
+    reserved: reservedValue,
     hiresProductive: hires.value,
     hiresHeldByCap: committedPlanned.value - committed.value,
     transfersIn: tin.value,
@@ -334,10 +458,28 @@ export function siteWeek(input: SiteWeekInput): SiteWeekResult {
     capShortfall,
     leadTimeShortfall,
     hiresToStart: starters.value,
+    unplacedStarters: unplaced,
     leadWeeks: lead.value,
     startPeriod: start.value,
     classPossible,
     overUnder: overUnder.value,
     trace: t.steps,
   };
+}
+
+/** Starters the start week can still take: none if blocked, else classes × class size − starters already there. */
+function startRoom(t: TraceBuilder, limits: StartLimits): Ref {
+  if (limits.blocked) return t.input('startRoom', `Room in the start week (${limits.blocked})`, 0, 'heads', limits.codes?.blocked);
+  const size = t.input('maxClassSize', 'Maximum class size', limits.maxClassSize, 'heads', limits.codes?.maxClassSize);
+  const classes = t.input('maxClassesPerWeek', 'Classes a site can start in one week', limits.maxClassesPerWeek, 'count', limits.codes?.maxClassesPerWeek);
+  const taken = t.input('startTaken', 'Starters moved into the start week', limits.taken, 'heads');
+  return t.calc(
+    'startRoom',
+    'Room in the start week',
+    Math.max(0, size.value * classes.value - taken.value),
+    'heads',
+    'max(0, classes a week × class size − starters already there)',
+    `MAX(0,${size.expr}*${classes.expr}-${taken.expr})`,
+    [size, classes, taken],
+  );
 }

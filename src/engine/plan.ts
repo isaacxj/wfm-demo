@@ -7,7 +7,8 @@
  */
 import { periodLabel } from './calendar.ts';
 import { periodRequirement, REQUIRED_FTE_NOTE, type Channel, type RequirementResult } from './requirement.ts';
-import { siteWeek, type SiteWeekResult } from './siteweek.ts';
+import { siteWeek, type SiteWeekResult, type StartLimits } from './siteweek.ts';
+import { periodAttritionRate } from './supply.ts';
 import { TraceBuilder, group, type TracePart, type TraceStep } from './trace.ts';
 
 export interface PlanWeek {
@@ -26,13 +27,42 @@ export interface PlanConstants {
   trainingAttrition: number;
   /** Smallest class worth running. */
   minClassSize: number;
+  /** Largest class a site trains at once. Unlimited if absent. */
+  maxClassSize?: number;
+  /** Classes a site can start in one week. Unlimited if absent. */
+  maxClassesPerWeek?: number;
+  /** Weeks no class may start, by horizon index. */
+  blockedWeeks?: readonly number[];
+  /** Why each blocked week is blocked, e.g. "Holy Week". */
+  blockedWeekNames?: Readonly<Record<number, string>>;
   codes: {
     periodsPerMonth: string;
     trainingWeeks: string;
     nestingWeeks: string;
     trainingAttrition: string;
     minClassSize: string;
+    maxClassSize?: string;
+    maxClassesPerWeek?: string;
+    blockedWeeks?: string;
   };
+}
+
+/**
+ * A class the constraints moved earlier than its ideal start week. Its
+ * graduates land early and are held for the week they were hired for.
+ */
+export interface MovedClass {
+  siteId: string;
+  startWeek: number;
+  /** Week its graduates are productive. */
+  landWeek: number;
+  /** Week the heads were needed. */
+  forWeek: number;
+  /** Week it would have started without the constraint. */
+  idealStartWeek: number;
+  starters: number;
+  /** Why it moved, e.g. "W12 blocked (Holy Week)" or "W25 full: 2 classes of 30". */
+  reason: string;
 }
 
 export interface SiteInput {
@@ -129,6 +159,8 @@ export interface SitePeriod {
 export interface SitePlan {
   site: SiteInput;
   periods: SitePeriod[];
+  /** Classes started earlier than their ideal week, in the order the plan moved them. */
+  moved: MovedClass[];
 }
 
 export interface PlanResult {
@@ -145,14 +177,28 @@ export function computePlan(input: PlanInput): PlanResult {
     unitsBySite.set(u.siteId, list);
   }
 
+  const lead = constants.trainingWeeks + constants.nestingWeeks;
+  const firstStartWeek = weeks[0]?.index ?? 1;
+  const blocked = new Set(constants.blockedWeeks ?? []);
+  const maxSize = constants.maxClassSize ?? Infinity;
+  const maxClasses = constants.maxClassesPerWeek ?? Infinity;
+  /** Starters a site may start in a week under the class constraints. */
+  const capacityAt = (week: number) => (week < firstStartWeek || blocked.has(week) ? 0 : maxSize * maxClasses);
+  const blockedNote = (week: number) => {
+    const name = constants.blockedWeekNames?.[week];
+    return `${shortWeek(input.isoYear, week)} blocked${name ? ` (${name})` : ''}`;
+  };
+  const constrained = blocked.size > 0 || Number.isFinite(maxSize * maxClasses);
+  const blockedCode = (week: number) => (constants.codes.blockedWeeks ? `${constants.codes.blockedWeeks}.W${String(week).padStart(2, '0')}` : undefined);
+  const fullNote = (week: number) =>
+    `${shortWeek(input.isoYear, week)} full: ${Number.isFinite(maxClasses) ? maxClasses : ''} class${maxClasses === 1 ? '' : 'es'} of ${maxSize}`;
+
   const sites = input.sites.map((site): SitePlan => {
     expectLength(`${site.id} committedHires`, site.committedHires, weeks.length);
     const units = unitsBySite.get(site.id) ?? [];
-    const periods: SitePeriod[] = [];
-    let opening = site.openingHeadcount;
-
-    weeks.forEach((week, w) => {
-      const unitPeriods = units.map((unit): UnitPeriod => {
+    // Demand does not depend on supply, so it is worked out once, however often supply rolls forward.
+    const demandByWeek = weeks.map((week, w) =>
+      units.map((unit): UnitPeriod => {
         const cells = input.demand[unit.id];
         if (!cells) throw new Error(`No demand for unit ${unit.id}`);
         expectLength(`${unit.id} demand`, cells, weeks.length);
@@ -177,68 +223,151 @@ export function computePlan(input: PlanInput): PlanResult {
           },
         });
         return { unit, week: week.index, volume: cell.volume, aht: cell.aht, requirement };
-      });
+      }),
+    );
+    const weeklyRetention = 1 - periodAttritionRate(site.monthlyAttrition, constants.periodsPerMonth).rate;
+    const moved: MovedClass[] = [];
+    const movedStartersAt = (week: number) => moved.filter((m) => m.startWeek === week).reduce((s, m) => s + m.starters, 0);
+    const limitsAt = (week: number): StartLimits | undefined =>
+      !constrained || week < firstStartWeek || (!blocked.has(week) && !Number.isFinite(maxSize * maxClasses))
+        ? undefined
+        : {
+            maxClassSize: maxSize,
+            maxClassesPerWeek: maxClasses,
+            taken: movedStartersAt(week),
+            blocked: blocked.has(week) ? blockedNote(week) : undefined,
+            codes: { maxClassSize: constants.codes.maxClassSize, maxClassesPerWeek: constants.codes.maxClassesPerWeek, blocked: blockedCode(week) },
+          };
+    const periods: SitePeriod[] = [];
 
-      const t = new TraceBuilder();
-      const { volume, aht, workload, productive, required } = rollUpDemand(t, unitPeriods);
+    /** Rolls supply forward from week index `from`; returns the index to roll from again, or null when done. */
+    const roll = (from: number): number | null => {
+      periods.length = from;
+      let opening = from === 0 ? site.openingHeadcount : periods[from - 1]!.flow.closing;
+      for (let w = from; w < weeks.length; w++) {
+        const week = weeks[w]!;
+        const unitPeriods = demandByWeek[w]!;
+        const t = new TraceBuilder();
+        const { volume, aht, workload, productive, required } = rollUpDemand(t, unitPeriods);
 
-      const flow = siteWeek({
-        opening,
-        monthlyAttrition: site.monthlyAttrition,
-        periodsPerMonth: constants.periodsPerMonth,
-        committedHires: site.committedHires[w] ?? 0,
-        transfersIn: site.transfersIn?.[w] ?? 0,
-        transfersOut: site.transfersOut?.[w] ?? 0,
-        cap: site.cap,
-        requiredFte: required.value,
-        week: week.index,
-        firstStartWeek: weeks[0]?.index ?? 1,
-        trainingAttrition: constants.trainingAttrition,
-        minClassSize: constants.minClassSize,
-        trainingWeeks: constants.trainingWeeks,
-        nestingWeeks: constants.nestingWeeks,
-        codes: {
-          opening: w === 0 ? site.codes.openingHeadcount : undefined,
-          monthlyAttrition: site.codes.monthlyAttrition,
-          periodsPerMonth: constants.codes.periodsPerMonth,
-          committedHires: site.codes.committedHires,
-          cap: site.codes.cap,
-          trainingAttrition: constants.codes.trainingAttrition,
-          minClassSize: constants.codes.minClassSize,
-          trainingWeeks: constants.codes.trainingWeeks,
-          nestingWeeks: constants.codes.nestingWeeks,
-        },
-      });
-      t.input('workWeekHours', 'Work week', site.workWeekHours, 'hours/week', site.codes.workWeekHours);
-      t.input('occupancyCeiling', 'Occupancy ceiling', site.occupancyCeiling, 'ratio', site.codes.occupancyCeiling);
-      t.input('shrinkage', 'Shrinkage', site.shrinkage, 'ratio', site.codes.shrinkage);
-      t.include('flow', flow.trace);
-      t.link('flow.required', [required]);
-      const prior = periods[w - 1];
-      if (prior) {
-        t.attach('flow.opening', [{ id: `${site.id}:${prior.weekLabel}`, label: `${prior.weekLabel} closing`, steps: prior.trace, focus: 'flow.closing' }]);
+        const idealStart = week.index - lead;
+        const landing = moved.filter((m) => m.landWeek === week.index);
+        const earlyPlanned = landing.reduce((s, m) => s + m.starters, 0) * (1 - constants.trainingAttrition);
+        // Early graduates still in supply that were hired for a later week, after attrition since they landed.
+        const reserved = moved
+          .filter((m) => m.landWeek < week.index && m.forWeek > week.index)
+          .reduce((s, m) => s + landedOf(periods, m) * weeklyRetention ** (week.index - m.landWeek), 0);
+
+        const flow = siteWeek({
+          opening,
+          monthlyAttrition: site.monthlyAttrition,
+          periodsPerMonth: constants.periodsPerMonth,
+          committedHires: site.committedHires[w] ?? 0,
+          transfersIn: site.transfersIn?.[w] ?? 0,
+          transfersOut: site.transfersOut?.[w] ?? 0,
+          cap: site.cap,
+          requiredFte: required.value,
+          week: week.index,
+          firstStartWeek,
+          trainingAttrition: constants.trainingAttrition,
+          minClassSize: constants.minClassSize,
+          trainingWeeks: constants.trainingWeeks,
+          nestingWeeks: constants.nestingWeeks,
+          startLimits: limitsAt(idealStart),
+          earlyGraduates: earlyPlanned,
+          reserved,
+          codes: {
+            opening: w === 0 ? site.codes.openingHeadcount : undefined,
+            monthlyAttrition: site.codes.monthlyAttrition,
+            periodsPerMonth: constants.codes.periodsPerMonth,
+            committedHires: site.codes.committedHires,
+            cap: site.codes.cap,
+            trainingAttrition: constants.codes.trainingAttrition,
+            minClassSize: constants.codes.minClassSize,
+            trainingWeeks: constants.codes.trainingWeeks,
+            nestingWeeks: constants.codes.nestingWeeks,
+          },
+        });
+        t.input('workWeekHours', 'Work week', site.workWeekHours, 'hours/week', site.codes.workWeekHours);
+        t.input('occupancyCeiling', 'Occupancy ceiling', site.occupancyCeiling, 'ratio', site.codes.occupancyCeiling);
+        t.input('shrinkage', 'Shrinkage', site.shrinkage, 'ratio', site.codes.shrinkage);
+        t.include('flow', flow.trace);
+        t.link('flow.required', [required]);
+        const prior = periods[w - 1];
+        if (prior) {
+          t.attach('flow.opening', [{ id: `${site.id}:${prior.weekLabel}`, label: `${prior.weekLabel} closing`, steps: prior.trace, focus: 'flow.closing' }]);
+        }
+        if (landing.length > 0) {
+          t.note(
+            'flow.earlyPlanned',
+            landing.map((m) => `${m.starters} started ${shortWeek(input.isoYear, m.startWeek)} for ${shortWeek(input.isoYear, m.forWeek)}: ${m.reason}`).join('; '),
+          );
+        }
+
+        periods.push({
+          siteId: site.id,
+          week: week.index,
+          weekLabel: week.label,
+          volume: volume.value,
+          aht: aht.value,
+          workloadHours: workload.value,
+          occupancyCeiling: site.occupancyCeiling,
+          shrinkage: site.shrinkage,
+          productiveFte: productive.value,
+          requiredFte: required.value,
+          flow,
+          classStartLabel: flow.hiresToStart > 0 ? periodLabel(input.isoYear, flow.startPeriod) : null,
+          units: unitPeriods,
+          trace: t.steps,
+        });
+
+        if (flow.unplacedStarters > 0) {
+          const placed = placeEarlier(week.index, idealStart, flow.unplacedStarters * (1 - constants.trainingAttrition));
+          if (placed !== null) return placed - firstStartWeek;
+        }
+        opening = flow.closing;
       }
+      return null;
+    };
 
-      periods.push({
-        siteId: site.id,
-        week: week.index,
-        weekLabel: week.label,
-        volume: volume.value,
-        aht: aht.value,
-        workloadHours: workload.value,
-        occupancyCeiling: site.occupancyCeiling,
-        shrinkage: site.shrinkage,
-        productiveFte: productive.value,
-        requiredFte: required.value,
-        flow,
-        classStartLabel: flow.hiresToStart > 0 ? periodLabel(input.isoYear, flow.startPeriod) : null,
-        units: unitPeriods,
-        trace: t.steps,
-      });
-      opening = flow.closing;
-    });
+    /**
+     * Starts the graduates a week needs in the latest earlier weeks with room,
+     * enough to cover attrition between landing and the week they are for.
+     * Returns the earliest landing week, or null when no earlier week has room.
+     */
+    const placeEarlier = (forWeek: number, idealStart: number, graduatesNeeded: number): number | null => {
+      const reason = blocked.has(idealStart) ? blockedNote(idealStart) : fullNote(idealStart);
+      let need = graduatesNeeded;
+      let earliest: number | null = null;
+      for (let start = idealStart - 1; start >= firstStartWeek && need > EPS; start--) {
+        const own = periods[start + lead - firstStartWeek];
+        const taken = movedStartersAt(start) + (own && own.flow.startPeriod === start ? own.flow.hiresToStart : 0);
+        // Graduates must fit under any cap in the week they land, or the early class is wasted.
+        const fit = own && site.cap !== null ? Math.floor(Math.max(0, own.flow.cap! - own.flow.closing) / (1 - constants.trainingAttrition) + EPS) : Infinity;
+        const room = Math.min(capacityAt(start) - taken, fit);
+        if (room <= 0) continue;
+        const perStarter = (1 - constants.trainingAttrition) * weeklyRetention ** (forWeek - (start + lead));
+        let starters = Math.ceil(need / perStarter - EPS);
+        // A class on its own in its week runs at the minimum size or not at all.
+        if (taken === 0) starters = Math.max(starters, constants.minClassSize);
+        starters = Math.min(starters, room);
+        const same = moved.find((m) => m.startWeek === start && m.forWeek === forWeek);
+        if (same) same.starters += starters;
+        else moved.push({ siteId: site.id, startWeek: start, landWeek: start + lead, forWeek, idealStartWeek: idealStart, starters, reason });
+        need -= starters * perStarter;
+        earliest = start + lead;
+      }
+      return earliest;
+    };
 
-    return { site, periods };
+    // Each move lands graduates in a week already rolled, so roll again from there. Moves only ever add classes.
+    let from: number | null = 0;
+    for (let guard = 0; from !== null; guard++) {
+      if (guard > 500) throw new Error(`${site.id}: class constraints did not settle`);
+      from = roll(from);
+    }
+
+    return { site, periods, moved };
   });
 
   return { weeks, sites };
@@ -301,6 +430,19 @@ function excelOf(r: RequirementResult, key: string): string {
   const step = r.trace.find((s) => s.key === key);
   if (!step?.excel) throw new Error(`Missing ${key} in requirement trace`);
   return step.excel.slice(1);
+}
+
+const EPS = 1e-9;
+
+const shortWeek = (isoYear: number, week: number) => periodLabel(isoYear, week).slice(5);
+
+/** Graduates a moved class actually landed, sharing any cap clip with classes landing the same week. */
+function landedOf(periods: readonly SitePeriod[], m: MovedClass): number {
+  const p = periods.find((x) => x.week === m.landWeek);
+  if (!p) return 0;
+  const planned = p.trace.find((s) => s.key === 'flow.earlyPlanned')?.value ?? 0;
+  const share = planned > 0 ? p.flow.earlyGraduates / planned : 0;
+  return m.starters * (1 - p.trace.find((s) => s.key === 'flow.trainingAttrition')!.value) * share;
 }
 
 function expectLength(what: string, arr: readonly unknown[], n: number): void {

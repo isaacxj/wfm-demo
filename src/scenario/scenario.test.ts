@@ -52,7 +52,8 @@ describe('applyScenario', () => {
   it('a Manila-1 cap below requirement binds and surfaces the shortfall', () => {
     const s = engine.computePlan(applyScenario(base, scenario({ code: 'SC1.OV1', kind: 'cap', scope: { type: 'site', siteId: 'MNL1' }, value: 900 })));
     const mnl1 = s.sites.find((x) => x.site.id === 'MNL1')!;
-    const p = mnl1.periods[11]!;
+    // W13: W12 has no class of its own, its start week W06 being blocked.
+    const p = mnl1.periods[12]!;
     expect(p.flow.closing).toBeLessThanOrEqual(900 + 1e-9);
     expect(p.flow.atCap).toBe(true);
     expect(p.flow.capShortfall).toBeGreaterThan(50);

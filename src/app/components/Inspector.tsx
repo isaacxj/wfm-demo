@@ -254,7 +254,7 @@ function CellDetail({ target, weekLabel, labelOfWeek }: DetailProps) {
             {copied === 'done' ? 'Copied to clipboard' : copied === 'failed' ? 'Copy failed' : 'Copy as Excel formula'}
           </button>
           <div className="foot-note">
-            Reproduces <span className="num">{shown.text}</span> from literal
+            Reproduces <span className="num">{formatStep(focusStep.value, focusStep.unit, labelOfWeek).text}</span> from literal
             inputs · <span className="num">{intFmt.format(focusStep.excel.length)}</span> characters
             {focusStep.unit === 'week' ? ' · returns the week index' : ''}
           </div>

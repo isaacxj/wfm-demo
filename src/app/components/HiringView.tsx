@@ -59,7 +59,7 @@ const COLS: readonly ColDef[] = [
   { key: 'nesting', header: 'Nesting', group: 'Schedule', width: 84 },
   { key: 'productive', header: 'Productive', group: 'Schedule', width: 86 },
   { key: 'deficit', header: 'Need FTE', group: 'Need', width: 80 },
-  { key: 'driver', header: 'Driver', group: 'Need', width: 176, text: true },
+  { key: 'driver', header: 'Driver', group: 'Need', width: 400, text: true },
 ];
 
 const helper = createColumnHelper<HRow>();
@@ -172,7 +172,34 @@ export function HiringView(props: HiringViewProps) {
         </div>
         <div className="sc-overrides">
           <span className="sc-empty">
-            Classes of at least <span className="num">{hp.minClassSize}</span> · training <span className="num">{hp.trainingWeeks}</span> wks ·
+            Classes of <span className="num">{hp.minClassSize}</span>
+            {hp.maxClassSize !== null ? (
+              <>
+                –<span className="num">{hp.maxClassSize}</span>
+              </>
+            ) : (
+              ' or more'
+            )}
+            {hp.maxClassesPerWeek !== null && (
+              <>
+                {' '}
+                · at most <span className="num">{hp.maxClassesPerWeek}</span> a site a week
+              </>
+            )}
+            {hp.blockedWeeks.length > 0 && (
+              <>
+                {' '}
+                · no starts in{' '}
+                {hp.blockedWeeks.map((b, i) => (
+                  <span key={b.week} title={b.name}>
+                    {i > 0 ? ', ' : ''}
+                    <span className="num">{b.label}</span>
+                    {b.name ? ` ${b.name}` : ''}
+                  </span>
+                ))}
+              </>
+            )}{' '}
+            · training <span className="num">{hp.trainingWeeks}</span> wks ·
             nesting <span className="num">{hp.nestingWeeks}</span> wks · training attrition{' '}
             <span className="num">{one.format(trainingAttrition * 100)}%</span>
           </span>
@@ -255,7 +282,7 @@ export function HiringView(props: HiringViewProps) {
           </Menu>
         </div>
         <div className="tl-spacer" />
-        <div className="tl-note">Each class is productive in the week its site needs the heads</div>
+        <div className="tl-note">Each class is productive in the week its site needs the heads, or earlier where a constraint moved it</div>
       </div>
 
       <div className="grid-scroll">
@@ -300,9 +327,19 @@ export function HiringView(props: HiringViewProps) {
                             <div className="id-cell">
                               <span className="id-name">{row.label}</span>
                               {row.sub && <span className="id-code">{row.sub}</span>}
+                              {row.cls && row.cls.classCount > 1 && (
+                                <span className="id-code">
+                                  {row.cls.classIndex}/{row.cls.classCount}
+                                </span>
+                              )}
                               {row.cls?.capLimited && (
                                 <span className="flag-cap" title="Class limited by the site's contracted cap">
                                   CAP
+                                </span>
+                              )}
+                              {row.cls && row.cls.moved.length > 0 && (
+                                <span className="flag-moved" title={row.cls.moved.map((m) => m.reason).join('; ')}>
+                                  MOVED
                                 </span>
                               )}
                             </div>
@@ -349,10 +386,23 @@ function Stat({ label, value, strong }: { label: string; value: string; strong?:
 const ACTION: Readonly<Record<Exception['kind'], string>> = {
   lead: 'Cover with overtime, transfers or outsourcer surge',
   cap: 'Raise the contracted cap or move volume to another site',
+  constraint: 'Run an extra class, or cover with overtime or transfers',
+  moved: 'Start the class early; graduates carry as surplus until needed',
 };
 
+const REASON: Readonly<Record<Exclude<Exception['kind'], 'moved'>, string>> = {
+  lead: 'Inside training lead time',
+  cap: 'Above contracted cap',
+  constraint: 'No week can take the class',
+};
+
+const KIND_ORDER: readonly Exception['kind'][] = ['lead', 'cap', 'constraint'];
+
 function Exceptions({ exceptions }: { exceptions: readonly Exception[] }) {
-  const rows = [...exceptions].sort((a, b) => (a.kind === b.kind ? a.siteName.localeCompare(b.siteName) : a.kind === 'lead' ? -1 : 1));
+  const moved = exceptions.filter((e) => e.kind === 'moved');
+  const rows = exceptions
+    .filter((e) => e.kind !== 'moved')
+    .sort((a, b) => (a.kind === b.kind ? a.siteName.localeCompare(b.siteName) : KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind)));
   const weeks = (ws: readonly number[]) => {
     // Compress to ranges: W01–W06, W31–W34.
     const out: string[] = [];
@@ -370,47 +420,110 @@ function Exceptions({ exceptions }: { exceptions: readonly Exception[] }) {
     return out.join(', ');
   };
   return (
-    <table className="grid hiring exceptions" style={{ width: 1194 }}>
+    <>
+      {moved.length > 0 && <MovedClasses moved={moved} />}
+      {rows.length > 0 && (
+        <table className="grid hiring exceptions" style={{ width: 1394 }}>
+          <colgroup>
+            <col style={{ width: 230 }} />
+            <col style={{ width: 150 }} />
+            <col style={{ width: 480 }} />
+            <col style={{ width: 150 }} />
+            <col style={{ width: 84 }} />
+            <col style={{ width: 300 }} />
+          </colgroup>
+          <thead>
+            <tr className="band">
+              <th className="id" colSpan={6}>
+                Not coverable by hiring
+              </th>
+            </tr>
+            <tr className="head">
+              <th className="id">Site</th>
+              <th className="text">Outsourcer</th>
+              <th className="text">Reason</th>
+              <th className="text">Weeks</th>
+              <th>Peak FTE</th>
+              <th className="text">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((e) => (
+              <tr key={`${e.kind}:${e.siteId}`} className="site">
+                <td className="id">
+                  <div className="id-cell">
+                    <span className="id-name">{e.siteName}</span>
+                    <span className="id-code">{e.siteId}</span>
+                    {e.kind === 'cap' && <span className="flag-cap">CAP</span>}
+                  </div>
+                </td>
+                <td className="text">{e.outsourcer}</td>
+                <td className="text" title={e.reason}>
+                  {e.kind === 'moved' ? '' : REASON[e.kind]}
+                  {e.reason ? `: ${e.reason}` : ''}
+                </td>
+                <td className="text">{weeks(e.weeks)}</td>
+                <td>{one.format(e.peakFte)}</td>
+                <td className="text">{ACTION[e.kind]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+/** Every class the constraints moved, and why. */
+function MovedClasses({ moved }: { moved: readonly Exception[] }) {
+  const rows = [...moved].sort((a, b) => a.move!.startWeek - b.move!.startWeek || a.siteName.localeCompare(b.siteName));
+  return (
+    <table className="grid hiring exceptions" style={{ width: 1394 }}>
       <colgroup>
         <col style={{ width: 230 }} />
         <col style={{ width: 150 }} />
-        <col style={{ width: 150 }} />
-        <col style={{ width: 230 }} />
-        <col style={{ width: 84 }} />
-        <col style={{ width: 350 }} />
+        <col style={{ width: 76 }} />
+        <col style={{ width: 96 }} />
+        <col style={{ width: 96 }} />
+        <col style={{ width: 96 }} />
+        <col style={{ width: 650 }} />
       </colgroup>
       <thead>
         <tr className="band">
-          <th className="id" colSpan={6}>
-            Not coverable by hiring
+          <th className="id" colSpan={7}>
+            Classes moved earlier
           </th>
         </tr>
         <tr className="head">
           <th className="id">Site</th>
           <th className="text">Outsourcer</th>
+          <th>Starters</th>
+          <th className="text">Starts</th>
+          <th className="text">Instead of</th>
+          <th className="text">For week</th>
           <th className="text">Reason</th>
-          <th className="text">Weeks</th>
-          <th>Peak FTE</th>
-          <th className="text">Action</th>
         </tr>
       </thead>
       <tbody>
-        {rows.map((e) => (
-          <tr key={`${e.kind}:${e.siteId}`} className="site">
-            <td className="id">
-              <div className="id-cell">
-                <span className="id-name">{e.siteName}</span>
-                <span className="id-code">{e.siteId}</span>
-                {e.kind === 'cap' && <span className="flag-cap">CAP</span>}
-              </div>
-            </td>
-            <td className="text">{e.outsourcer}</td>
-            <td className="text">{e.kind === 'lead' ? 'Inside training lead time' : 'Above contracted cap'}</td>
-            <td className="text">{weeks(e.weeks)}</td>
-            <td>{one.format(e.peakFte)}</td>
-            <td className="text">{ACTION[e.kind]}</td>
-          </tr>
-        ))}
+        {rows.map((e) => {
+          const m = e.move!;
+          return (
+            <tr key={`${e.siteId}:${m.startWeek}:${m.forWeek}`} className="site">
+              <td className="id">
+                <div className="id-cell">
+                  <span className="id-name">{e.siteName}</span>
+                  <span className="id-code">{e.siteId}</span>
+                </div>
+              </td>
+              <td className="text">{e.outsourcer}</td>
+              <td>{int.format(m.starters)}</td>
+              <td className="text">W{pad(m.startWeek)}</td>
+              <td className="text">W{pad(m.idealStartWeek)}</td>
+              <td className="text">W{pad(m.forWeek)}</td>
+              <td className="text">{m.reason}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

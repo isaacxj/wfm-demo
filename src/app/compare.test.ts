@@ -34,7 +34,8 @@ describe('comparison', () => {
   });
 
   it('changed rows only keeps just the changed site, its group and the total', () => {
-    const m = buildCompare(basePlan, capMnl1, opts, true);
+    // W13: in W12 Manila-1 has no class of its own (its start week, W06, is blocked), so it sits below any cap.
+    const m = buildCompare(basePlan, capMnl1, { ...opts, week: 13 }, true);
     expect(m.changedSites).toBe(1);
     expect(m.rows.map((r) => `${r.kind}:${r.base.label}`)).toEqual([
       'group:Teleperformance',

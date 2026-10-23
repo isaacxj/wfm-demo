@@ -577,9 +577,14 @@ function hiringSheet(wb: ExcelJS.Workbook, hp: HiringPlan, ctx: ExportContext): 
     { header: 'Nesting', band: 'Schedule', width: 12, text: true },
     { header: 'Productive', band: 'Schedule', width: 12, text: true },
     { header: 'Need FTE', band: 'Need', width: 11 },
-    { header: 'Driver', band: 'Need', width: 24, text: true },
+    { header: 'Driver', band: 'Need', width: 60, text: true },
   ];
-  const context = `Classes of at least ${hp.minClassSize} · training ${hp.trainingWeeks} wks · nesting ${hp.nestingWeeks} wks · each class is productive in the week its site needs the heads`;
+  const limits = [
+    `Classes of ${hp.minClassSize}${hp.maxClassSize !== null ? `–${hp.maxClassSize}` : ' or more'}`,
+    hp.maxClassesPerWeek !== null ? `at most ${hp.maxClassesPerWeek} a site a week` : null,
+    hp.blockedWeeks.length > 0 ? `no starts in ${hp.blockedWeeks.map((b) => `${b.label}${b.name ? ` (${b.name})` : ''}`).join(', ')}` : null,
+  ].filter(Boolean);
+  const context = `${limits.join(' · ')} · training ${hp.trainingWeeks} wks · nesting ${hp.nestingWeeks} wks · each class is productive in the week its site needs the heads, or earlier where a constraint moved it`;
   const ws = addSheet(wb, 'Hiring plan', `Hiring plan · ${ctx.planName} · ${ctx.scenarioName ?? 'Baseline'}`, context, cols);
 
   const rows: Row[] = [];
@@ -589,8 +594,8 @@ function hiringSheet(wb: ExcelJS.Workbook, hp: HiringPlan, ctx: ExportContext): 
       rows.push({
         kind: 'site',
         label: c.siteName,
-        sub: c.siteId,
-        flag: c.capLimited ? 'CAP' : undefined,
+        sub: c.classCount > 1 ? `${c.siteId} ${c.classIndex}/${c.classCount}` : c.siteId,
+        flag: [c.capLimited ? 'CAP' : '', c.moved.length > 0 ? 'MOVED' : ''].filter(Boolean).join('] [') || undefined,
         cells: [
           { v: c.outsourcer, text: true },
           { v: c.starters, numFmt: FMT.int },
@@ -631,14 +636,18 @@ function hiringSheet(wb: ExcelJS.Workbook, hp: HiringPlan, ctx: ExportContext): 
 
   if (hp.exceptions.length === 0) return;
   const at = first + rows.length + 2;
+  const band = 'Exceptions';
   const ecols: Col[] = [
-    { header: 'Site', band: 'Not coverable by hiring', width: 30 },
-    { header: 'Outsourcer', band: 'Not coverable by hiring', width: 20, text: true },
-    { header: 'Reason', band: 'Not coverable by hiring', width: 10, text: true },
-    { header: 'Peak FTE', band: 'Not coverable by hiring', width: 11 },
-    { header: 'Peak week', band: 'Not coverable by hiring', width: 17, text: true },
+    { header: 'Site', band, width: 30 },
+    { header: 'Outsourcer', band, width: 20, text: true },
+    { header: 'Exception', band, width: 10, text: true },
+    { header: 'FTE / starters', band, width: 11 },
+    { header: 'Weeks', band, width: 17, text: true },
+    { header: 'Reason', band, width: 12, text: true },
   ];
   writeHeader(ws, at, ecols);
+  const w = (n: number) => `W${String(n).padStart(2, '0')}`;
+  const LABEL = { lead: 'Lead time', cap: 'Cap', constraint: 'No week', moved: 'Moved' } as const;
   const erows: Row[] = hp.exceptions.map((e) => ({
     kind: 'site',
     label: e.siteName,
@@ -646,9 +655,13 @@ function hiringSheet(wb: ExcelJS.Workbook, hp: HiringPlan, ctx: ExportContext): 
     flag: e.kind === 'cap' ? 'CAP' : undefined,
     cells: [
       { v: e.outsourcer, text: true },
-      { v: e.kind === 'lead' ? 'Lead time' : 'Cap', text: true },
-      { v: displayRound(e.peakFte, 'one'), numFmt: FMT.one },
-      { v: `W${String(e.peakWeek).padStart(2, '0')} · ${e.weeks.length} wks`, text: true },
+      { v: LABEL[e.kind], text: true },
+      e.kind === 'moved' ? { v: e.peakFte, numFmt: FMT.int } : { v: displayRound(e.peakFte, 'one'), numFmt: FMT.one },
+      {
+        v: e.move ? `starts ${w(e.move.startWeek)}, for ${w(e.move.forWeek)}` : `${w(e.peakWeek)} · ${e.weeks.length} wks`,
+        text: true,
+      },
+      { v: e.reason ?? '', text: true },
     ],
   }));
   writeRows(ws, at + 2, ecols, erows, false);

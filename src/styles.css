@@ -1841,3 +1841,48 @@ tr.site .id-cell {
 .flag-drift.pos {
   color: var(--pos);
 }
+
+/* Class constraints ------------------------------------------------------------ */
+
+.flag-moved {
+  display: inline-block;
+  height: 14px;
+  padding: 0 3px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 12px;
+}
+
+/* Paused recalculation: what the grid shows predates the staged edits. */
+.main[data-stale] .grid tbody td:not(.id),
+.main[data-stale] .grid tbody td.pos,
+.main[data-stale] .grid tbody td.neg,
+.main[data-stale] .summary-strip .num {
+  color: var(--ink-400);
+}
+
+.chip.override.staged {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+
+.chip.override.removed .num,
+.chip.override.removed .chip-key {
+  text-decoration: line-through;
+  color: var(--ink-400);
+}
+
+.staged-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.statusbar .sb-item.paused .dot {
+  background: var(--warn);
+}

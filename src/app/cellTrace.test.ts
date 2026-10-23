@@ -8,7 +8,7 @@ import { ALL_FILTERS, buildRows, COLUMNS, type Filters, type GridRow, type Numer
 const plan = engine.computePlan(demoDataset().plan);
 
 /** Inputs that are structural rather than assumptions: no record code needed. */
-const STRUCTURAL = new Set(['transfersIn', 'transfersOut', 'week', 'occupancy']);
+const STRUCTURAL = new Set(['transfersIn', 'transfersOut', 'week', 'occupancy', 'startTaken', 'earlyPlanned', 'reservedCarried']);
 const tail = (key: string) => key.split('.').at(-1)!;
 
 /** Every value reachable from the focus resolves to coded inputs or sub-chains. */

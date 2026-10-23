@@ -109,18 +109,37 @@ const CHANNEL_CODE: Readonly<Record<Channel, string>> = { voice: 'VO', chat: 'CH
 /** Smallest class a outsourcer runs. Smaller needs round up to it. */
 export const MIN_CLASS_SIZE = 8;
 
+/** A training room seats 30; a site runs at most two classes from one week. */
+export const MAX_CLASS_SIZE = 30;
+export const MAX_CLASSES_PER_WEEK = 2;
+
+/** Weeks no class starts: trainers and recruits are on holiday. */
+export const BLOCKED_WEEKS: Readonly<Record<number, string>> = {
+  6: 'Lunar New Year',
+  12: 'Holy Week',
+  51: 'Christmas',
+  52: 'New Year',
+};
+
 export const CONSTANTS: PlanConstants = {
   periodsPerMonth: WEEKS_PER_MONTH,
   trainingWeeks: 4,
   nestingWeeks: 2,
   trainingAttrition: 0.15,
   minClassSize: MIN_CLASS_SIZE,
+  maxClassSize: MAX_CLASS_SIZE,
+  maxClassesPerWeek: MAX_CLASSES_PER_WEEK,
+  blockedWeeks: Object.keys(BLOCKED_WEEKS).map(Number),
+  blockedWeekNames: BLOCKED_WEEKS,
   codes: {
     periodsPerMonth: 'GLB.PPM',
     trainingWeeks: 'GLB.TRW',
     nestingWeeks: 'GLB.NSW',
     trainingAttrition: 'GLB.TRA',
     minClassSize: 'GLB.MCS',
+    maxClassSize: 'GLB.MXS',
+    maxClassesPerWeek: 'GLB.MXW',
+    blockedWeeks: 'GLB.BLK',
   },
 };
 
@@ -240,7 +259,13 @@ function assumptionRegister(sites: readonly SiteInput[]): AssumptionRecord[] {
     { code: 'GLB.NSW', label: 'Nesting duration', value: CONSTANTS.nestingWeeks, unit: 'weeks', scope: 'Global' },
     { code: 'GLB.TRA', label: 'Training attrition', value: CONSTANTS.trainingAttrition, unit: 'ratio', scope: 'Global' },
     { code: 'GLB.MCS', label: 'Minimum class size', value: CONSTANTS.minClassSize, unit: 'heads', scope: 'Global' },
+    { code: 'GLB.MXS', label: 'Maximum class size', value: MAX_CLASS_SIZE, unit: 'heads', scope: 'Global' },
+    { code: 'GLB.MXW', label: 'Classes a site can start in one week', value: MAX_CLASSES_PER_WEEK, unit: 'classes', scope: 'Global' },
   ];
+  records.push({ code: 'GLB.BLK', label: 'Weeks no class starts', value: Object.keys(BLOCKED_WEEKS).length, unit: 'weeks', scope: 'Global' });
+  for (const [week, name] of Object.entries(BLOCKED_WEEKS)) {
+    records.push({ code: `GLB.BLK.W${week.padStart(2, '0')}`, label: `No class starts: ${name}`, value: Number(week), unit: 'week', scope: 'Global' });
+  }
   for (const c of [2, 3, 4]) {
     records.push({ code: `GLB.CEF${c}`, label: `Chat efficiency at concurrency ${c}`, value: DEFAULT_CHAT_EFFICIENCY[c] ?? null, unit: 'ratio', scope: 'Global' });
   }

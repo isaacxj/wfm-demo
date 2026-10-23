@@ -80,6 +80,7 @@ export type {
   PlanningUnit,
   SiteInput,
   SitePeriod,
+  MovedClass,
   SitePlan,
   UnitPeriod,
 } from './plan.ts';

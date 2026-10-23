@@ -164,7 +164,8 @@ export function horizonSummary(base: PlanResult, scen: PlanResult): HorizonSumma
   const both = (f: (p: PlanResult) => number): [number, number] => [f(base), f(scen)];
   return {
     avgRequired: both((p) => sum(p, (x) => x.requiredFte) / p.weeks.length),
-    starters: both((p) => sum(p, (x) => x.flow.hiresToStart)),
+    // Every starter: classes in their ideal week, and those the class constraints moved earlier.
+    starters: both((p) => sum(p, (x) => x.flow.hiresToStart) + p.sites.reduce((a, sp) => a + sp.moved.reduce((b, m) => b + m.starters, 0), 0)),
     capShortfallWeeks: both((p) => sum(p, (x) => (x.flow.capShortfall > 0.05 ? 1 : 0))),
     leadShortfallFte: both((p) => sum(p, (x) => x.flow.leadTimeShortfall)),
   };

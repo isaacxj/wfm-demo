@@ -33,7 +33,7 @@ Statixx Solutions. All data in this repository is invented.
 | v2.1 | Terminology: industry names, Over/Under sign, shrinkage convention | Done |
 | v2.2 | Grid orientation: Periods and Metrics modes; density | Done |
 | v2.3 | Actuals, plan and scenario bands | Done |
-| v2.4 | Pause recalculation; class constraints | Not started |
+| v2.4 | Pause recalculation; class constraints | Done |
 | v2.5 | Bulk entry; Staff Type | Not started |
 | v2.6 | Driver and event register | Not started |
 | v2.7 | Budget variance; report view | Not started |
@@ -75,7 +75,7 @@ records (`ACT27.MEX.HC.W09` for headcount).
 Open **Scenarios** → **Fork scenario from v3** → **+ Add override** → **AHT**,
 +5, all sites, all weeks → **Apply**. Every metric now shows baseline,
 scenario and change side by side. In 2027-W12, Required FTE rises by
-**+243.1**. Over the year, hires to start rise from 3,436 to 3,795. The baseline
+**+243.1**. Over the year, hires to start rise from 3,443 to 3,804. The baseline
 stays locked; the scenario is a separate, fully recalculated plan.
 
 ![AHT +5% compared with the baseline](docs/screenshots/03-scenario-aht.png)
@@ -93,9 +93,15 @@ unchanged sites. The strip above the grid summarises the whole year.
 ### 5. Cut Manila-1 below its requirement
 
 **+ Add override** → **HC cap** → Manila-1 → **900** → **Apply**. Manila-1's
-Planned FTE drops to the cap and its Over/Under falls by **−83.7**. Selecting the
-change cell shows the cap note in the inspector: requirement exceeds the cap,
-and the shortfall cannot be hired at this site.
+Planned FTE drops to 889, under the cap (W12's class would have started in W06,
+which is blocked for Lunar New Year), and its Over/Under falls by **−87.9**.
+Selecting the change cell shows the cap note in the inspector: requirement
+exceeds the cap, and 83.5 FTE cannot be hired at this site.
+
+To stage several edits, **Pause recalculation** first (toolbar, right). Edits
+then wait: their chips are marked STAGED, the grid greys out, and the status
+bar counts the pending changes. **Resume** recalculates once with all of them;
+the status bar's run counter goes up by one.
 
 ![Manila-1 capped at 900](docs/screenshots/05-scenario-cap.png)
 
@@ -103,10 +109,17 @@ and the shortfall cannot be hired at this site.
 
 **Hiring plan** in the rail. This is the recruitment instruction: for each start
 week, which site hires how many, training and nesting weeks, the week the class
-is productive, and why. 139 classes and 3,436 starters across the year; the
-busiest start week is 2027-W25, ahead of the marketing spike. Needs hiring
-cannot meet are listed underneath: deficits inside the six-week lead time, and
-demand above a contracted cap.
+is productive, and why. 185 classes and 3,443 starters across the year; the
+busiest start week is 2027-W25, 427 starters ahead of the marketing spike.
+Classes hold 8 to 30, a site starts at most two a week, and no class starts in
+a blocked week (W06 Lunar New Year, W12 Holy Week, W51 Christmas, W52 New
+Year). Where the ideal week is blocked or full, the class starts earlier,
+never later, flagged **MOVED** with its reason: Kingston's W18 class starts in
+W11 because W12 is Holy Week, and the W31 spike hiring spreads back over W22
+to W24 because W25 is full. Underneath: every class moved earlier and why, then
+needs hiring cannot meet: deficits inside the six-week lead time, demand above
+a contracted cap, and Manila-1's W12 need, whose start week is blocked with no
+earlier week having room under its cap.
 
 ![Hiring plan grouped by start week](docs/screenshots/06-hiring-plan.png)
 
@@ -179,6 +192,7 @@ A textbook capacity model behind the `CapacityEngine` interface in
 - Supply: weekly attrition = 1 − (1 − monthly)^(1 ÷ 4.33); a contracted cap limits productive hires and surfaces demand above it as a cap shortfall
 - Hiring: starters = ceil(deficit ÷ (1 − training attrition)), starting training + nesting weeks before the need. The recommended class lands in supply, so a persisting deficit is hired for once
 - Minimum class size: a recommended class has at least 8 starters, rounded up from the need where room under any cap allows; the extra graduates carry forward as a small surplus
+- Class constraints: at most 30 a class and 2 classes a site a week; no starts in blocked weeks. Starters the ideal week cannot take start in the latest earlier week with room, sized for attrition between landing and the week they are for. Their graduates land early and are held for that week: in supply, but not counted against the deficits of the weeks between, so the early class adds cover rather than replacing those weeks' own classes. The site then rolls forward again from the week they land. Starters no week can take stay as a shortfall
 - Committed pipeline: classes already in training at plan start land in weeks 1 to 6; inside that lead time no new class can land, and any deficit remains as a lead-time shortfall
 - Filters: demand sums over the matching planning units; site supply is allocated to the slice by its share of required FTE
 - Actuals: required FTE from observed volume and AHT by the same requirement arithmetic; Over/Under = observed headcount − that requirement; a filtered slice gets observed headcount by its share of required FTE
@@ -269,6 +283,14 @@ scenario recalculates in well under a second. Selecting a change cell traces
 it as scenario minus baseline, each side opening into its own chain.
 Scenarios are kept in the browser's local storage.
 
+**Pause recalculation** (toolbar) holds the scenario as last calculated. Edits
+made while paused are staged: override chips are marked STAGED (or REMOVAL
+STAGED), every grid number greys to show it predates them, and the status bar
+reads "Recalculation paused · N pending changes", counting each edit. **Resume**
+recalculates once with all of them. The status bar's run counter numbers each
+calculation since the page opened, so a resume after four edits shows one
+more run, not four.
+
 ## Hiring plan
 
 The recruitment instruction for the open plan or scenario: how many to hire, at
@@ -276,9 +298,15 @@ which site, starting which week. Classes are grouped by start week (or by site),
 each with its outsourcer, starters, expected graduates after training attrition, the
 training and nesting weeks, the week its graduates are productive, the deficit
 it closes and what drives it. A summary line gives classes, starters, graduates,
-the first class and the busiest start week. Needs hiring cannot meet are listed
-separately with an action: deficits inside the training lead time, and demand
-above a contracted cap. Every number is read from the plan, so the instruction
+the first class and the busiest start week. The header states the class
+constraints: class size, classes a site can start in a week, and blocked weeks.
+A site's starters in one week are split into classes no larger than the
+maximum, numbered 1/2, 2/2. A class that a constraint moved earlier is flagged
+**MOVED**, its driver names the week it is for and why, and the inspector
+says the same. Underneath, every moved class is listed with the week it starts,
+the week it would have started, the week it is for and the reason. Needs hiring
+cannot meet are listed separately with an action: deficits inside the training
+lead time, demand above a contracted cap, and needs no week could take. Every number is read from the plan, so the instruction
 and the grid agree, and any cell opens its site-week chain in the inspector.
 
 ## Excel export

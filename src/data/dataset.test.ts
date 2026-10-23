@@ -14,7 +14,7 @@ describe('demo dataset', () => {
   });
 
   it('is pinned, so a screenshot today matches next month', () => {
-    expect(fnv1a(JSON.stringify(ds.plan)).toString(16).padStart(8, '0')).toBe('36e6e728');
+    expect(fnv1a(JSON.stringify(ds.plan)).toString(16).padStart(8, '0')).toBe('3629933d');
   });
 
   it('has eight sites across four outsourcers, as tabled in the brief', () => {
@@ -135,11 +135,12 @@ describe('plan on the demo dataset', () => {
     expect(p.trace.at(-1)?.key).toBe('flow.overUnder');
   });
 
-  it('hires for a deficit once: after a class lands, a site is under only by its cap shortfall', () => {
+  it('hires for a deficit once: after a class lands, a site is under only by its cap shortfall or a class no week could take', () => {
+    const unplaced = (p: (typeof plan.sites)[number]['periods'][number]) => p.flow.unplacedStarters * (1 - ds.plan.constants.trainingAttrition);
     for (const sp of plan.sites) {
       for (const p of sp.periods) {
         if (!p.flow.classPossible) continue;
-        expect(-p.flow.overUnder, `${sp.site.id} ${p.weekLabel}`).toBeLessThanOrEqual(p.flow.capShortfall + 1e-9);
+        expect(-p.flow.overUnder, `${sp.site.id} ${p.weekLabel}`).toBeLessThanOrEqual(p.flow.capShortfall + unplaced(p) + 1e-9);
       }
     }
   });

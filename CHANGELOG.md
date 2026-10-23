@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.4 — Edit control and class constraints
+
+- **Pause recalculation**: a toolbar toggle. Edits made while paused are
+  staged; the grid greys out and the status bar counts pending changes.
+  Resume recalculates once.
+- **Class constraints** as plan constants: maximum class size (30), classes a
+  site can start in one week (2), and blocked start weeks (W06 Lunar New Year,
+  W12 Holy Week, W51 Christmas, W52 New Year), with assumption records.
+- When the ideal start week is blocked or full, starters move to an earlier
+  week, never later. The move is recorded with its reason, shown on the class,
+  in the inspector and in the hiring plan's exceptions; a need no earlier week
+  can take is listed as an exception.
+- Starters per site-week are split into classes no larger than the maximum.
+- Hires to start in the scenario summary now include moved classes.
+
 ## v2.3 — Actuals, plan and scenario
 
 - Weeks W01 to W11 have elapsed and carry actuals: observed volume and AHT per

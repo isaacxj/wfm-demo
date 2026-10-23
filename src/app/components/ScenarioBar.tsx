@@ -28,6 +28,8 @@ interface ScenarioBarProps {
   onAdd: (o: DraftOverride) => void;
   onRemove: (code: string) => void;
   onDiscard: () => void;
+  /** While recalculation is paused: overrides added and removed since the last calculation. */
+  staged?: { added: ReadonlySet<string>; removed: readonly Scenario['overrides'][number][] };
 }
 
 const int = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
@@ -50,16 +52,25 @@ export function ScenarioBar(props: ScenarioBarProps) {
         <div className="sc-overrides" aria-label="Overrides">
           {scenario.overrides.length === 0 && <span className="sc-empty">No overrides. The scenario matches the baseline.</span>}
           {scenario.overrides.map((o) => (
-            <span key={o.code} className="chip override" title={o.code}>
+            <span key={o.code} className={`chip override ${props.staged?.added.has(o.code) ? 'staged' : ''}`} title={o.code}>
               <span className="chip-key">{OVERRIDE_LABEL[o.kind]}</span>
               <span className="num">{describeChange(o)}</span>
               <span className="chip-key">
                 {describeScope(o.scope, siteName)} · {describeWhen(o, horizon)}
               </span>
               <span className="sc-code">{o.code}</span>
+              {props.staged?.added.has(o.code) && <span className="staged-tag">STAGED</span>}
               <button aria-label={`Remove override ${o.code}`} onClick={() => onRemove(o.code)}>
                 <Close />
               </button>
+            </span>
+          ))}
+          {props.staged?.removed.map((o) => (
+            <span key={o.code} className="chip override staged removed" title={`${o.code}: removal staged`}>
+              <span className="chip-key">{OVERRIDE_LABEL[o.kind]}</span>
+              <span className="num">{describeChange(o)}</span>
+              <span className="sc-code">{o.code}</span>
+              <span className="staged-tag">REMOVAL STAGED</span>
             </span>
           ))}
           <Menu

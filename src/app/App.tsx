@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { demoDataset } from '../data/dataset.ts';
 import { buildActuals } from '../data/actuals.ts';
-import { engine, periodLabel, type PlanResult } from '../engine/index.ts';
+import { engine, periodLabel, TraceBuilder, type PlanResult } from '../engine/index.ts';
 import { applyScenario, parseStoredScenarios, type Scenario } from '../scenario/scenario.ts';
 import { buildCompare, COMPARE_METRICS, DEFAULT_COMPARE_HIDDEN, deltaOf, deltaTrace, horizonSummary } from './compare.ts';
 import { CompareGrid, type CompareRef } from './components/CompareGrid.tsx';
@@ -18,7 +18,7 @@ import { TopBar } from './components/TopBar.tsx';
 import { compareWorkbook, fileName, hiringWorkbook, periodsWorkbook, planWorkbook, type ExportContext } from '../export/xlsx.ts';
 import { downloadWorkbook } from '../export/download.ts';
 import { formatDelta, formatValue, type Formatted } from './format.ts';
-import { buildHiringPlan } from './hiring.ts';
+import { buildHiringPlan, type HiringClass } from './hiring.ts';
 import {
   ALL_FILTERS,
   buildRows,
@@ -109,6 +109,16 @@ const HIRING_FOCUS: Readonly<Record<HiringKey, string>> = {
   productive: 'flow.startPeriod',
 };
 
+/** Starters moved into a week, and the graduates they deliver, for a class made only of them. */
+function movedClassTrace(c: HiringClass, trainingAttrition: number, code: string) {
+  const t = new TraceBuilder();
+  const starters = t.input('starters', 'Starters moved earlier', c.starters, 'heads');
+  t.note('starters', c.moved.map((m) => `For ${labelOfWeek(m.forWeek).slice(5)}: ${m.reason}`).join('; '));
+  const attr = t.input('trainingAttrition', 'Training attrition', trainingAttrition, 'ratio', code);
+  t.calc('graduates', 'Graduates', c.starters * (1 - trainingAttrition), 'heads', 'starters × (1 − training attrition)', `${starters.expr}*(1-${attr.expr})`, [starters, attr]);
+  return t.steps;
+}
+
 export function App() {
   const [view, setView] = useState<View>('plans');
   const [week, setWeek] = useState<number>(PLAN.landingWeek);
@@ -128,6 +138,12 @@ export function App() {
   const [gridMode, setGridMode] = useState<GridMode>(() => readSession<GridMode>(MODE_KEY, ['periods', 'metrics'], 'periods'));
   const [density, setDensity] = useState<Density>(() => readSession<Density>(DENSITY_KEY, ['comfortable', 'compact'], 'comfortable'));
   const [periodMetric, setPeriodMetric] = useState<NumericKey>(DEFAULT_PERIOD_METRIC);
+  const [paused, setPaused] = useState(false);
+  /** The scenario as last calculated, held while recalculation is paused. */
+  const [calculated, setCalculated] = useState<Scenario | null>(null);
+  const [runs, setRuns] = useState(1);
+  /** Edits made while paused, each add or remove counted. */
+  const [edits, setEdits] = useState(0);
   const [showVariance, setShowVariance] = useState<boolean>(() => readSession(VARIANCE_KEY, ['on', 'off'], 'on') === 'on');
 
   useEffect(() => writeStored(SCENARIOS_KEY, JSON.stringify(scenarios)), [scenarios]);
@@ -159,6 +175,32 @@ export function App() {
 
   const active = scenarios.find((s) => s.id === activeId) ?? null;
 
+  // Switching scenario is not an edit: a paused plan holds the newly opened scenario as calculated.
+  useEffect(() => {
+    if (paused) setCalculated(active);
+  }, [active?.id]); // keyed on the scenario, not its edits
+
+  const togglePause = useCallback(() => {
+    setPaused((p) => {
+      if (!p) setCalculated(active);
+      return !p;
+    });
+    setEdits(0);
+  }, [active]);
+
+  /** What the engine calculates: the live scenario, or the held one while paused. */
+  const toCalculate = paused && calculated && active && calculated.id === active.id ? calculated : active;
+  const staged = useMemo(() => {
+    if (toCalculate === active || !toCalculate || !active) return null;
+    const before = new Set(toCalculate.overrides.map((o) => o.code));
+    const after = new Set(active.overrides.map((o) => o.code));
+    return {
+      added: new Set([...after].filter((c) => !before.has(c))),
+      removed: toCalculate.overrides.filter((o) => !after.has(o.code)),
+    };
+  }, [toCalculate, active]);
+  const pending = paused ? edits : 0;
+
   const fork = useCallback(() => {
     setScenarios((list) => {
       const n = list.reduce((m, s) => Math.max(m, Number(s.code.replace(/\D/g, '')) || 0), 0) + 1;
@@ -176,17 +218,22 @@ export function App() {
   );
 
   const addOverride = useCallback(
-    (draft: DraftOverride) =>
+    (draft: DraftOverride) => {
+      if (paused) setEdits((n) => n + 1);
       updateActive((s) => {
         const n = s.overrides.reduce((m, o) => Math.max(m, Number(o.code.split('.OV')[1]) || 0), 0) + 1;
         return { ...s, overrides: [...s.overrides, { ...draft, code: `${s.code}.OV${n}` } as Scenario['overrides'][number]] };
-      }),
-    [updateActive],
+      });
+    },
+    [updateActive, paused],
   );
 
   const removeOverride = useCallback(
-    (code: string) => updateActive((s) => ({ ...s, overrides: s.overrides.filter((o) => o.code !== code) })),
-    [updateActive],
+    (code: string) => {
+      if (paused) setEdits((n) => n + 1);
+      updateActive((s) => ({ ...s, overrides: s.overrides.filter((o) => o.code !== code) }));
+    },
+    [updateActive, paused],
   );
 
   const discard = useCallback(() => {
@@ -256,11 +303,14 @@ export function App() {
   // Computation -------------------------------------------------------------------
 
   const scen = useMemo<{ plan: PlanResult; ms: number } | null>(() => {
-    if (!active) return null;
+    if (!toCalculate) return null;
     const start = performance.now();
-    const plan = engine.computePlan(applyScenario(dataset.plan, active));
+    const plan = engine.computePlan(applyScenario(dataset.plan, toCalculate));
     return { plan, ms: performance.now() - start };
-  }, [active]);
+  }, [toCalculate]);
+  useEffect(() => {
+    if (scen) setRuns((n) => n + 1);
+  }, [scen]);
 
   const shownPlan = scen?.plan ?? basePlan;
   const opts = useMemo(() => ({ week, filters, grouping }), [week, filters, grouping]);
@@ -295,22 +345,46 @@ export function App() {
     const siteRows = buildRows(shownPlan, { week: c.productiveWeek, filters: ALL_FILTERS, grouping: 'none' });
     const row = siteRows.find((r) => r.siteId === c.siteId);
     if (!period || !row) return null;
-    const focus = hiringSel.key === 'deficit' && !period.trace.some((x) => x.key === 'flow.hireable') ? 'flow.deficit' : HIRING_FOCUS[hiringSel.key];
-    const value = period.trace.find((x) => x.key === focus)?.value ?? null;
+    const own = period.flow.hiresToStart > 0 && period.flow.startPeriod === c.startWeek;
+    const sized = hiringSel.key === 'starters' || hiringSel.key === 'graduates' || hiringSel.key === 'deficit';
+    // A class made only of starters moved here from a later week: its own short chain, starters to graduates.
+    const movedTrace = !own && sized ? movedClassTrace(c, dataset.plan.constants.trainingAttrition, dataset.plan.constants.codes.trainingAttrition) : null;
+    const focus = movedTrace
+      ? (hiringSel.key === 'starters' ? 'starters' : 'graduates')
+      : hiringSel.key === 'deficit' && !period.trace.some((x) => x.key === 'flow.hireable')
+        ? 'flow.deficit'
+        : HIRING_FOCUS[hiringSel.key];
+    const classValue = hiringSel.key === 'starters' ? c.starters : hiringSel.key === 'graduates' ? c.graduates : hiringSel.key === 'deficit' ? c.deficit : null;
     const shown: Formatted =
-      focus === 'flow.startPeriod'
-        ? { text: labelOfWeek(c.startWeek), tone: undefined }
-        : formatValue(value, hiringSel.key === 'starters' ? 'int' : 'one');
+      classValue !== null
+        ? formatValue(classValue, hiringSel.key === 'starters' ? 'int' : 'one')
+        : { text: labelOfWeek(focus === 'flow.startPeriod' ? c.startWeek : c.productiveWeek), tone: undefined };
+    const extraNotes: InspectorTarget['extraNotes'] = [];
+    if (c.classCount > 1) {
+      extraNotes.push({
+        tag: 'SPLIT',
+        tone: 'info',
+        text: `Class ${c.classIndex} of ${c.classCount} starting ${c.startLabel.slice(5)} at ${c.siteName}, at most ${hiringPlan.maxClassSize} a class. The chain below is for the site-week.`,
+      });
+    }
+    for (const m of c.moved) {
+      extraNotes.push({
+        tag: 'MOVED',
+        tone: 'warn',
+        text: `${m.starters} starters for ${labelOfWeek(m.forWeek).slice(5)} start ${labelOfWeek(m.startWeek).slice(5)}: ${m.reason}.`,
+      });
+    }
     return {
       id: `${c.id}:${hiringSel.key}`,
       row,
       members: [],
       key: 'hireNeed',
-      trace: { steps: period.trace, focus },
+      trace: { steps: movedTrace ?? period.trace, focus },
       shown,
       side: `Class ${c.startLabel.slice(5)}`,
       isInput: false,
       weekLabel: c.productiveLabel,
+      extraNotes,
     };
   }, [view, hiringSel, hiringPlan, shownPlan]);
 
@@ -433,6 +507,9 @@ export function App() {
       metric={periodMetric}
       onMetric={changePeriodMetric}
       note={note}
+      paused={paused}
+      pending={pending}
+      onPause={togglePause}
     >
       {extra}
     </Toolbar>
@@ -548,6 +625,7 @@ export function App() {
           onAdd={addOverride}
           onRemove={removeOverride}
           onDiscard={discard}
+          staged={staged ?? undefined}
         />
         {toolbar(
           COMPARE_METRICS,
@@ -600,7 +678,9 @@ export function App() {
         exporting={exporting}
       />
       <Rail view={view} onView={changeView} locked={!active} sites={dataset.plan.sites.length} units={dataset.units.length} />
-      <main className="main">{main}</main>
+      <main className="main" data-stale={pending > 0 ? '' : undefined}>
+        {main}
+      </main>
       <Inspector open={inspectorOpen} onToggle={toggleInspector} target={target} weekLabel={weekLabel} labelOfWeek={labelOfWeek} />
       <StatusBar
         engineName={engine.name}
@@ -610,6 +690,9 @@ export function App() {
         units={unitCount}
         weekLabel={weekLabel}
         scenario={active?.name ?? null}
+        paused={paused}
+        pending={pending}
+        runs={runs}
       />
     </div>
   );

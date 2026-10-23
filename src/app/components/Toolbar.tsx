@@ -45,6 +45,10 @@ interface ToolbarProps {
   onMetric?: (m: NumericKey) => void;
   /** A line about what the grid shows, beside the filter note. */
   note?: string;
+  /** Pause recalculation: edits are staged until resumed. */
+  paused?: boolean;
+  pending?: number;
+  onPause?: () => void;
 }
 
 export type GridMode = 'periods' | 'metrics';
@@ -241,6 +245,20 @@ export function Toolbar(props: ToolbarProps) {
       {props.note && <div className="tl-note">{props.note}</div>}
       {filtered && <div className="tl-note">Supply split by share of required FTE</div>}
 
+      {props.onPause && (
+        <div className="tl-seg end">
+          <span className="seg-group" role="group" aria-label="Recalculation">
+            <button
+              className="pause-toggle"
+              aria-pressed={props.paused ?? false}
+              onClick={props.onPause}
+              title={props.paused ? 'Recalculate once with every staged edit' : 'Stage edits without recalculating'}
+            >
+              {props.paused ? `Resume${props.pending ? ` · ${props.pending}` : ''}` : 'Pause recalculation'}
+            </button>
+          </span>
+        </div>
+      )}
       {mode && onMode && (
         <div className="tl-seg end">
           <span className="seg-group" role="group" aria-label="Orientation">
