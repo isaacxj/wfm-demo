@@ -7,7 +7,7 @@
  */
 import { TraceBuilder, type Ref, type TraceStep } from '../engine/index.ts';
 import { displayRound } from './format.ts';
-import { columnSpec, type ColumnKey, type GridRow } from './model.ts';
+import { columnSpec, type ColumnKey, type GridRow, type NumericKey } from './model.ts';
 
 export interface CellTrace {
   steps: readonly TraceStep[];
@@ -47,8 +47,30 @@ const SLICE_FOCUS: Readonly<Partial<Record<ColumnKey, string>>> = {
   hireNeed: 'hiresToStart',
 };
 
+/** Step key per column in an actual site-week trace, whole or sliced. */
+const ACTUAL_FOCUS: Readonly<Partial<Record<ColumnKey, string>>> = {
+  volume: 'volume',
+  aht: 'aht',
+  workload: 'workload',
+  productive: 'productive',
+  required: 'required',
+  planned: 'headcount',
+  overUnder: 'overUnder',
+};
+
+const ACTUAL_SITE_FOCUS: Readonly<Partial<Record<ColumnKey, string>>> = {
+  occ: 'occupancyCeiling',
+  shrink: 'shrinkage',
+};
+
 export function cellTrace(row: GridRow, key: ColumnKey, members: readonly GridRow[] = []): CellTrace | null {
   if (key === 'site' || row.kind === 'group') return null;
+  if (row.kind === 'site' && row.actual) {
+    const a = row.actual;
+    if (ACTUAL_FOCUS[key]) return { steps: a.trace, focus: ACTUAL_FOCUS[key] };
+    const focus = ACTUAL_SITE_FOCUS[key];
+    return focus ? { steps: a.siteTrace, focus } : null;
+  }
   if (row.kind === 'site') {
     const slice = row.slice;
     if (!slice) return null;
@@ -61,8 +83,9 @@ export function cellTrace(row: GridRow, key: ColumnKey, members: readonly GridRo
 
 function aggregateTrace(key: ColumnKey, members: readonly GridRow[]): CellTrace | null {
   const spec = columnSpec(key);
-  const sites = members.filter((m) => m.kind === 'site' && m.slice);
+  const sites = members.filter((m) => m.kind === 'site' && (m.slice || m.actual) && m.cells[key as NumericKey] != null);
   if (sites.length === 0) return null;
+  const raw = (m: GridRow, k: NumericKey) => m.cells[k] ?? 0;
   const t = new TraceBuilder();
 
   const memberInput = (m: GridRow, k: ColumnKey, value: number, unitKey: string, label: string): Ref => {
@@ -85,10 +108,10 @@ function aggregateTrace(key: ColumnKey, members: readonly GridRow[]): CellTrace 
       return { steps: t.steps, focus: 'total' };
     }
     case 'ahtWeighted': {
-      const vols = sites.map((m) => memberInput(m, 'volume', m.slice!.volume, 'volume', 'volume'));
-      const ahts = sites.map((m) => memberInput(m, 'aht', m.slice!.aht, 'aht', 'AHT'));
+      const vols = sites.map((m) => memberInput(m, 'volume', raw(m, 'volume'), 'volume', 'volume'));
+      const ahts = sites.map((m) => memberInput(m, 'aht', raw(m, 'aht'), 'aht', 'AHT'));
       const vol = vols.reduce((s, r) => s + r.value, 0);
-      const handled = sites.reduce((s, m) => s + m.slice!.volume * m.slice!.aht, 0);
+      const handled = sites.reduce((s, m) => s + raw(m, 'volume') * raw(m, 'aht'), 0);
       t.calc(
         'total',
         'AHT (volume weighted)',
@@ -101,8 +124,8 @@ function aggregateTrace(key: ColumnKey, members: readonly GridRow[]): CellTrace 
       return { steps: t.steps, focus: 'total' };
     }
     case 'effectiveShrink': {
-      const prod = sites.map((m) => memberInput(m, 'productive', m.slice!.productiveFte, 'productive', 'productive FTE'));
-      const reqd = sites.map((m) => memberInput(m, 'required', m.slice!.requiredFte, 'required', 'required FTE'));
+      const prod = sites.map((m) => memberInput(m, 'productive', raw(m, 'productive'), 'productive', 'productive FTE'));
+      const reqd = sites.map((m) => memberInput(m, 'required', raw(m, 'required'), 'required', 'required FTE'));
       const r = reqd.reduce((s, x) => s + x.value, 0);
       t.calc(
         'total',

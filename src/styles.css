@@ -1676,3 +1676,168 @@ tr.site .id-cell {
   color: var(--accent);
   letter-spacing: 0.04em;
 }
+
+/* Actual, plan and scenario bands ------------------------------------------ */
+
+.grid.periods {
+  --phase-h: 18px;
+}
+
+.grid.periods .phase th {
+  top: 0;
+  height: var(--phase-h);
+  background: var(--surface-0);
+  color: var(--ink-600);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  border-bottom: 1px solid var(--line-2);
+  /* Clipping would make the cell the sticky label's scroller. */
+  overflow: visible;
+}
+
+.grid.periods .phase th.band-actual {
+  background: var(--surface-1);
+}
+
+.grid.periods .phase th.band-scenario {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* The label stays beside the frozen site column while its band scrolls. */
+.grid.periods .phase .phase-label {
+  position: sticky;
+  left: 212px;
+  display: inline-block;
+}
+
+.grid.periods .phase .phase-range {
+  margin-left: 6px;
+  font-family: var(--font-num);
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--ink-400);
+}
+
+.grid.periods .band th {
+  top: var(--phase-h);
+}
+
+.grid.periods .head th {
+  top: calc(var(--phase-h) + var(--band-h));
+}
+
+.grid.periods .head th.week.band-actual {
+  background: var(--surface-1);
+}
+
+.grid.periods .head th.week.band-scenario {
+  background: var(--accent-soft);
+}
+
+.grid.periods .head th.week.focus {
+  background: var(--accent-soft);
+  color: var(--ink-900);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.grid.periods td.band-actual {
+  background: var(--surface-1);
+  color: var(--ink-600);
+}
+
+.grid.periods tr.subtotal td.band-actual,
+.grid.periods tr.site td.band-actual.focus {
+  background: var(--surface-2);
+}
+
+.grid.periods tr.total td.band-actual {
+  background: color-mix(in srgb, var(--surface-2) 88%, var(--ink-400));
+}
+
+.grid.periods td.band-scenario,
+.grid.periods tr.site:hover td.band-scenario {
+  background: var(--accent-soft);
+}
+
+.grid.periods tr.subtotal td.band-scenario,
+.grid.periods tr.site td.band-scenario.focus {
+  background: color-mix(in srgb, var(--accent-soft) 92%, var(--accent));
+}
+
+.grid.periods tr.total td.band-scenario {
+  background: color-mix(in srgb, var(--accent-soft) 86%, var(--accent));
+}
+
+.grid.periods tr.group td {
+  background: var(--outsourcer-fill);
+}
+
+.grid.periods td.pos {
+  color: var(--pos);
+}
+
+.grid.periods td.neg {
+  color: var(--neg);
+}
+
+.grid.periods td.muted {
+  color: var(--ink-400);
+}
+
+/* Where the weeks change band: the last actual week ends here. */
+.grid.periods th.now,
+.grid.periods td.now {
+  border-left: 2px solid var(--accent);
+}
+
+.grid.periods tr.variance td {
+  font-size: 10.5px;
+}
+
+.grid.periods tr.variance td.id {
+  color: var(--ink-400);
+  font-size: 10.5px;
+}
+
+.grid.periods tr.variance .id-cell {
+  padding-left: 28px;
+}
+
+.grid.periods.flat tr.variance .id-cell,
+.grid.periods tr.variance.of-subtotal .id-cell,
+.grid.periods tr.variance.of-total .id-cell {
+  padding-left: 14px;
+}
+
+.grid.periods tr.variance.of-total td {
+  background: var(--surface-2);
+}
+
+.grid.periods tr.variance.of-total td.band-actual {
+  background: color-mix(in srgb, var(--surface-2) 88%, var(--ink-400));
+}
+
+.flag-drift {
+  display: inline-block;
+  height: 14px;
+  padding: 0 3px;
+  border: 1px solid currentColor;
+  font-family: var(--font-ui);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 12px;
+  white-space: nowrap;
+}
+
+.flag-drift.neg {
+  color: var(--neg);
+}
+
+.flag-drift.pos {
+  color: var(--pos);
+}

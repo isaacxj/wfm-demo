@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { REQUIRED_FTE_NOTE, type TraceStep } from '../../engine/index.ts';
 import { cellTrace, chainOf, membersOf, type CellTrace } from '../cellTrace.ts';
 import { copyText } from '../clipboard.ts';
-import { formatStep, type Formatted } from '../format.ts';
-import { columnSpec, type ColumnKey, type GridRow } from '../model.ts';
+import { differenceTrace } from '../compare.ts';
+import { formatDelta, formatStep, type Formatted } from '../format.ts';
+import { columnSpec, type ColumnKey, type GridRow, type NumericKey } from '../model.ts';
+import { varianceOf, varianceTone, type PeriodModel } from '../periods.ts';
 import type { CellRef } from './Grid.tsx';
 import { cellText } from './Grid.tsx';
 import { Caret, CollapseRight, ExpandLeft } from './icons.tsx';
@@ -22,6 +24,8 @@ export interface InspectorTarget {
   isInput: boolean;
   /** Week the cell belongs to, when it is not the grid's selected week. */
   weekLabel?: string;
+  /** Notes the grid knows and the row does not, such as drift from plan. */
+  extraNotes?: Note[];
 }
 
 /** Target for a cell of a single-plan grid. */
@@ -40,6 +44,73 @@ export function planTarget(rows: readonly GridRow[], ref: CellRef | null, side?:
     isInput: row.inputs.has(ref.key),
   };
 }
+
+/**
+ * Target for a cell of the Periods grid: the row as that week shows it (actual,
+ * plan or scenario), or its variance against the locked plan.
+ */
+export function periodTarget(
+  model: PeriodModel,
+  ref: CellRef,
+  week: number,
+  names: { scenario: string | null; weekLabel: string },
+  variancePrefix: string,
+): InspectorTarget | null {
+  const i = week - 1;
+  const band = model.bands[i];
+  const isVariance = ref.rowId.startsWith(variancePrefix);
+  const rowId = isVariance ? ref.rowId.slice(variancePrefix.length) : ref.rowId;
+  const prow = model.rows.find((r) => r.id === rowId);
+  const shownRows = model.rowsByWeek[i];
+  const planRows = model.planByWeek[i];
+  if (!band || !prow || !shownRows || !planRows || ref.key === 'site' || ref.key === 'classStart') return null;
+  const sideName = band === 'actual' ? 'Actual' : band === 'scenario' ? (names.scenario ?? 'Scenario') : undefined;
+  const extraNotes: Note[] = [];
+  if (prow.drift) {
+    const d = prow.drift;
+    extraNotes.push({
+      tag: 'DRIFT',
+      tone: 'warn',
+      text: `${prow.label} has run ${oneFmt.format(Math.abs(d.overUnder))} FTE ${d.share < 0 ? 'further under' : 'further over'} than plan a week, ${weekShort(d.fromWeek)}–${weekShort(d.toWeek)}: ${oneFmt.format(Math.abs(d.share) * 100)}% of required FTE.`,
+    });
+  }
+  if (band === 'actual') {
+    extraNotes.push({
+      tag: 'ACTUAL',
+      tone: 'info',
+      text: 'Elapsed week. Volume, AHT and headcount are observed; Required FTE is what the observed volume and AHT imply at the plan’s occupancy and shrinkage.',
+    });
+  }
+  if (!isVariance) {
+    const t = planTarget(shownRows, { rowId, key: ref.key }, sideName);
+    return t ? { ...t, id: `${t.id}:${band}`, weekLabel: names.weekLabel, extraNotes } : null;
+  }
+  if (band === 'plan') return null;
+  const key = ref.key as NumericKey;
+  const spec = columnSpec(key);
+  const shownRow = prow.byWeek[i]!;
+  const planRow = prow.planByWeek[i]!;
+  const value = varianceOf(model, prow, i, key);
+  const base = planTarget(shownRows, { rowId, key }, 'Variance');
+  if (!base || value === null) return null;
+  const f = formatDelta(value, spec.format ?? 'one', false);
+  return {
+    ...base,
+    id: `${ref.rowId}:${key}:${band}`,
+    trace: differenceTrace(
+      { row: planRow, rows: planRows, label: 'Plan' },
+      { row: shownRow, rows: shownRows, label: sideName ?? 'Shown' },
+      key,
+      { label: `${spec.header} variance`, formula: band === 'actual' ? 'actual − plan' : 'scenario − plan' },
+    ),
+    shown: { text: f.text, tone: varianceTone(key, value) ?? f.tone },
+    isInput: false,
+    weekLabel: names.weekLabel,
+    extraNotes,
+  };
+}
+
+const weekShort = (week: number) => `W${String(week).padStart(2, '0')}`;
 
 interface InspectorProps {
   open: boolean;
@@ -111,7 +182,7 @@ function CellDetail({ target, weekLabel, labelOfWeek }: DetailProps) {
 
   const focusStep = trace?.steps.find((s) => s.key === trace.focus);
   const steps = trace ? (full ? trace.steps : chainOf(trace.steps, trace.focus)) : [];
-  const notes = flagsFor(row, members, labelOfWeek);
+  const notes = [...(target.extraNotes ?? []), ...flagsFor(row, members, labelOfWeek)];
 
   return (
     <>
@@ -126,8 +197,16 @@ function CellDetail({ target, weekLabel, labelOfWeek }: DetailProps) {
         {spec.key === 'required' && <div className="insp-convention">{REQUIRED_FTE_NOTE}</div>}
         <div className="insp-tags">
           {side && <span className="tag side">{side}</span>}
-          <span className="tag">{isInput ? 'Input' : row.kind === 'site' ? 'Computed' : 'Sum of sites'}</span>
-          {row.slice?.allocated && <span className="tag">Allocated</span>}
+          <span className="tag">
+            {isInput
+              ? 'Input'
+              : row.kind !== 'site'
+                ? 'Sum of sites'
+                : row.actual && side !== 'Variance' && (target.key === 'volume' || target.key === 'aht' || target.key === 'planned')
+                  ? 'Observed'
+                  : 'Computed'}
+          </span>
+          {(row.slice?.allocated || row.actual?.allocated) && <span className="tag">Allocated</span>}
         </div>
       </div>
 
@@ -270,7 +349,7 @@ function PartList({ parts, depth, labelOfWeek }: { parts: NonNullable<TraceStep[
   );
 }
 
-interface Note {
+export interface Note {
   tag: string;
   text: string;
   tone: 'warn' | 'info';
@@ -306,6 +385,13 @@ function flagsFor(row: GridRow, members: readonly GridRow[], labelOfWeek: (i: nu
         text: lead(`${oneFmt.format(s.leadTimeShortfall)} FTE short. No new class can land before ${labelOfWeek(1 + weeks)}.`),
       });
     }
+  }
+  if (row.kind === 'site' && row.actual?.allocated) {
+    notes.push({
+      tag: 'SPLIT',
+      tone: 'info',
+      text: `Actual headcount allocated by this slice's ${oneFmt.format(row.actual.share * 100)}% share of site required FTE.`,
+    });
   }
   if (row.kind === 'site' && row.slice?.allocated) {
     notes.push({

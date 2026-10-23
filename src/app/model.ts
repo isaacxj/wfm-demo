@@ -6,7 +6,7 @@
  * reconciles on screen: the digits a planner reads in the site rows add to the
  * digits in the subtotal, and subtotals add to the grand total.
  */
-import { engine, type PlanResult, type PlanningUnit, type SiteSlice } from '../engine/index.ts';
+import { engine, type ActualResult, type ActualSlice, type PlanResult, type PlanningUnit, type SiteSlice } from '../engine/index.ts';
 import { displayRound, type Format } from './format.ts';
 
 export type ColumnKey =
@@ -147,6 +147,8 @@ export interface GridRow {
   /** Columns a planner may change on this row. */
   inputs: ReadonlySet<ColumnKey>;
   slice?: SiteSlice;
+  /** Set on rows of an elapsed week: observed, not planned. */
+  actual?: ActualSlice;
 }
 
 export interface RowModelOptions {
@@ -165,17 +167,63 @@ export function buildRows(plan: PlanResult, opts: RowModelOptions): GridRow[] {
     if (!slice) continue;
     siteRows.push(siteRow(sp.site.id, sp.site.name, sp.site.outsourcer, slice, opts.week));
   }
+  return assembleRows(plan, siteRows, opts.grouping);
+}
 
+/**
+ * Rows of an elapsed week from actuals, in the same order and with the same ids
+ * as the plan's rows for that week. Actuals are observed, so nothing is an input.
+ */
+export function buildActualRows(actuals: ActualResult, plan: PlanResult, opts: RowModelOptions): GridRow[] {
+  const include = unitPredicate(opts.filters);
+  const siteRows: GridRow[] = [];
+  for (const sp of plan.sites) {
+    const period = actuals.sites.find((a) => a.siteId === sp.site.id)?.periods[opts.week - 1];
+    if (!period) throw new RangeError(`No actuals for ${sp.site.id} in week ${opts.week}`);
+    const a = engine.sliceActualPeriod(period, include);
+    if (!a) continue;
+    siteRows.push({
+      id: `site:${sp.site.id}`,
+      kind: 'site',
+      label: sp.site.name,
+      siteId: sp.site.id,
+      code: sp.site.id,
+      outsourcer: sp.site.outsourcer,
+      atCap: sp.site.cap !== null && period.headcount >= sp.site.cap,
+      cells: {
+        volume: a.volume,
+        aht: a.aht,
+        workload: a.workloadHours,
+        occ: a.occupancyCeiling,
+        shrink: a.shrinkage,
+        productive: a.productiveFte,
+        required: a.requiredFte,
+        opening: null,
+        attrition: null,
+        hires: null,
+        planned: a.headcount,
+        overUnder: a.overUnder,
+        hireNeed: null,
+      },
+      classStart: null,
+      inputs: new Set(),
+      actual: a,
+    });
+  }
+  return assembleRows(plan, siteRows, opts.grouping);
+}
+
+function assembleRows(plan: PlanResult, siteRows: readonly GridRow[], grouping: Grouping): GridRow[] {
   const rows: GridRow[] = [];
-  if (opts.grouping === 'none') {
+  if (grouping === 'none') {
     rows.push(...siteRows);
   } else {
-    const keyOf = (r: GridRow) => (opts.grouping === 'outsourcer' ? (r.outsourcer ?? '') : countryOf(plan, r.siteId));
+    const keyOf = (r: GridRow) => (grouping === 'outsourcer' ? (r.outsourcer ?? '') : countryOf(plan, r.siteId));
     const order: string[] = [];
     for (const r of siteRows) if (!order.includes(keyOf(r))) order.push(keyOf(r));
     for (const key of order) {
       const members = siteRows.filter((r) => keyOf(r) === key);
-      const label = opts.grouping === 'outsourcer' ? key : (COUNTRY_NAME[key] ?? key);
+      const label = grouping === 'outsourcer' ? key : (COUNTRY_NAME[key] ?? key);
       rows.push({ id: `group:${key}`, kind: 'group', label, cells: {}, classStart: null, inputs: new Set() });
       rows.push(...members);
       rows.push(aggregateRow(`subtotal:${key}`, 'subtotal', `Subtotal ${label}`, members));
@@ -223,23 +271,28 @@ function siteRow(id: string, name: string, outsourcer: string, s: SiteSlice, wee
 }
 
 function aggregateRow(id: string, kind: 'subtotal' | 'total', label: string, members: readonly GridRow[]): GridRow {
-  const slices = members.map((m) => m.slice).filter((s): s is SiteSlice => s !== undefined);
+  const raw = (m: GridRow, key: NumericKey) => m.cells[key] ?? 0;
   const cells: Partial<Record<NumericKey, number | null>> = {};
   for (const col of COLUMNS) {
     if (col.key === 'site' || col.key === 'classStart') continue;
     const key = col.key;
+    // A value no member carries, such as hire need in an elapsed week, has no total either.
+    if (col.aggregate !== 'none' && members.every((m) => m.cells[key] == null)) {
+      cells[key] = null;
+      continue;
+    }
     switch (col.aggregate) {
       case 'sum':
-        cells[key] = members.reduce((s, m) => s + displayRound(m.cells[key] ?? 0, col.format ?? 'one'), 0);
+        cells[key] = members.reduce((s, m) => s + displayRound(raw(m, key), col.format ?? 'one'), 0);
         break;
       case 'ahtWeighted': {
-        const vol = slices.reduce((s, x) => s + x.volume, 0);
-        cells[key] = vol === 0 ? null : slices.reduce((s, x) => s + x.volume * x.aht, 0) / vol;
+        const vol = members.reduce((s, m) => s + raw(m, 'volume'), 0);
+        cells[key] = vol === 0 ? null : members.reduce((s, m) => s + raw(m, 'volume') * raw(m, 'aht'), 0) / vol;
         break;
       }
       case 'effectiveShrink': {
-        const reqd = slices.reduce((s, x) => s + x.requiredFte, 0);
-        cells[key] = reqd === 0 ? null : 1 - slices.reduce((s, x) => s + x.productiveFte, 0) / reqd;
+        const reqd = members.reduce((s, m) => s + raw(m, 'required'), 0);
+        cells[key] = reqd === 0 ? null : 1 - members.reduce((s, m) => s + raw(m, 'productive'), 0) / reqd;
         break;
       }
       case 'none':

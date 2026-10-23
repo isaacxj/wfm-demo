@@ -5,6 +5,7 @@
  * textbook implementation; a replacement engine implements CapacityEngine and
  * is swapped in below without the UI changing.
  */
+import { computeActuals, sliceActualPeriod, type ActualInput, type ActualPeriod, type ActualResult, type ActualSlice } from './actual.ts';
 import { intervalStaffing, type IntervalInput, type IntervalResult } from './erlang.ts';
 import { computePlan, type PlanInput, type PlanResult, type PlanningUnit, type SitePeriod } from './plan.ts';
 import { siteWeek, type SiteWeekInput, type SiteWeekResult } from './siteweek.ts';
@@ -39,6 +40,9 @@ export interface CapacityEngine {
   siteWeek(input: SiteWeekInput): SiteWeekResult;
   computePlan(input: PlanInput): PlanResult;
   sliceSitePeriod(period: SitePeriod, include: (unit: PlanningUnit) => boolean): SiteSlice | null;
+  /** Observed weeks: the requirement actual volume and AHT imply, against actual headcount. */
+  computeActuals(input: PlanInput, actuals: ActualInput): ActualResult;
+  sliceActualPeriod(period: ActualPeriod, include: (unit: PlanningUnit) => boolean): ActualSlice | null;
 }
 
 export const textbookEngine: CapacityEngine = {
@@ -53,6 +57,8 @@ export const textbookEngine: CapacityEngine = {
   siteWeek,
   computePlan,
   sliceSitePeriod,
+  computeActuals,
+  sliceActualPeriod,
 };
 
 export const engine: CapacityEngine = textbookEngine;
@@ -63,6 +69,7 @@ export type { Channel, RequirementInput, RequirementResult } from './requirement
 export type { IntervalInput, IntervalResult } from './erlang.ts';
 export type { SiteWeekInput, SiteWeekResult } from './siteweek.ts';
 export type { SiteSlice } from './slice.ts';
+export type { ActualInput, ActualPeriod, ActualResult, ActualSlice, ObservedHeadcount } from './actual.ts';
 export type { AttritionRateResult, HiringInput, HiringResult, RollForwardInput, RollForwardResult } from './supply.ts';
 export type {
   DemandCell,

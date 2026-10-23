@@ -17,7 +17,7 @@ Statixx Solutions. All data in this repository is invented.
 **Click-through demo:** https://isaacxj.github.io/wfm-demo/ (desktop browser,
 1600px wide or more)
 
-![Plan grid, week 2027-W12](docs/screenshots/01-plan-grid.png)
+![Plan grid: actuals W01–W11, then the locked plan](docs/screenshots/01-plan-grid.png)
 
 ## Build status
 
@@ -32,7 +32,7 @@ Statixx Solutions. All data in this repository is invented.
 | 7 | Deploy | GitHub Pages, on every push to `main` |
 | v2.1 | Terminology: industry names, Over/Under sign, shrinkage convention | Done |
 | v2.2 | Grid orientation: Periods and Metrics modes; density | Done |
-| v2.3 | Actuals, plan and scenario bands | Not started |
+| v2.3 | Actuals, plan and scenario bands | Done |
 | v2.4 | Pause recalculation; class constraints | Not started |
 | v2.5 | Bulk entry; Staff Type | Not started |
 | v2.6 | Driver and event register | Not started |
@@ -40,10 +40,7 @@ Statixx Solutions. All data in this repository is invented.
 
 ## Demo walkthrough
 
-Screenshots below were taken before the v2 terminology and will be refreshed
-once actuals land (v2.3); the text uses the current names.
-
-Seven steps, following the demo script. Everything runs in the browser on an
+Eight steps: the demo script, plus actuals. Everything runs in the browser on an
 invented 2027 dataset: 8 sites, 4 outsourcers, 68 planning units, 52 weeks.
 
 ### 1. Open the locked production plan and read the grid
@@ -51,7 +48,9 @@ invented 2027 dataset: 8 sites, 4 outsourcers, 68 planning units, 52 weeks.
 The app opens on **FY27 Production Plan v3**, scenario **Baseline**, marked
 **LOCKED**, in **Periods** mode: one column per week of 2027 under month bands,
 rows for each outsourcer, its sites, a subtotal, then the grand total, and
-**Over/Under** in every cell. Read the whole year for every site in one pass:
+**Over/Under** in every cell. Weeks W01 to W11 have elapsed and show actuals,
+shaded; from W12 the grid shows the locked plan. A **Var. vs plan** row under
+each row gives actual − plan. Read the whole year for every site in one pass:
 Manila-1 runs under in the marketing-spike weeks W31 to W34. **Metric** switches
 the number shown. **Metrics** (top right) turns the grid round to one week with
 columns running demand → requirement → supply → over/under and hiring. Step through weeks with ‹ ›; filter by business unit,
@@ -59,7 +58,19 @@ language and channel; regroup by country. Subtotals add the displayed site value
 Faint left markers show the input cells a planner may change. Manila-1 carries
 a **CAP** flag whenever its headcount sits at its contracted cap of 980.
 
-### 2. Move AHT by 5 percent
+### 2. Spot the site that has drifted
+
+Mexico City carries an **OFF PLAN** flag, and its variance row runs red from
+W04. It took more contacts than forecast, they ran longer, and attrition ran
+ahead of plan: over W08 to W11 it averaged 70.7 FTE further under than
+planned, 11.2% of its requirement. Every other site is within a few percent
+either way. Select its actual Over/Under in W09 (−78.9): the inspector says
+the week is observed, names the drift, and traces the number to the actuals
+records (`ACT27.MEX.HC.W09` for headcount).
+
+![Mexico City's actual Over/Under in W09](docs/screenshots/02-actuals-drift.png)
+
+### 3. Move AHT by 5 percent
 
 Open **Scenarios** → **Fork scenario from v3** → **+ Add override** → **AHT**,
 +5, all sites, all weeks → **Apply**. Every metric now shows baseline,
@@ -67,9 +78,9 @@ scenario and change side by side. In 2027-W12, Required FTE rises by
 **+243.1**. Over the year, hires to start rise from 3,436 to 3,795. The baseline
 stays locked; the scenario is a separate, fully recalculated plan.
 
-![AHT +5% compared with the baseline](docs/screenshots/02-scenario-aht.png)
+![AHT +5% compared with the baseline](docs/screenshots/03-scenario-aht.png)
 
-### 3. Add 10,000 contacts a week and compare side by side
+### 4. Add 10,000 contacts a week and compare side by side
 
 Remove the AHT override (× on its chip), then **+ Add override** → **Volume**,
 +10,000 contacts / week → **Apply**. The grand total volume change is exactly
@@ -77,18 +88,18 @@ Remove the AHT override (× on its chip), then **+ Add override** → **Volume**
 Required FTE moves **+44.5** in W12. "Changed rows" / "All rows" toggles the
 unchanged sites. The strip above the grid summarises the whole year.
 
-![+10,000 contacts a week](docs/screenshots/03-scenario-volume.png)
+![+10,000 contacts a week](docs/screenshots/04-scenario-volume.png)
 
-### 4. Cut Manila-1 below its requirement
+### 5. Cut Manila-1 below its requirement
 
 **+ Add override** → **HC cap** → Manila-1 → **900** → **Apply**. Manila-1's
 Planned FTE drops to the cap and its Over/Under falls by **−83.7**. Selecting the
 change cell shows the cap note in the inspector: requirement exceeds the cap,
 and the shortfall cannot be hired at this site.
 
-![Manila-1 capped at 900](docs/screenshots/04-scenario-cap.png)
+![Manila-1 capped at 900](docs/screenshots/05-scenario-cap.png)
 
-### 5. Read the hiring plan
+### 6. Read the hiring plan
 
 **Hiring plan** in the rail. This is the recruitment instruction: for each start
 week, which site hires how many, training and nesting weeks, the week the class
@@ -97,9 +108,9 @@ busiest start week is 2027-W25, ahead of the marketing spike. Needs hiring
 cannot meet are listed underneath: deficits inside the six-week lead time, and
 demand above a contracted cap.
 
-![Hiring plan grouped by start week](docs/screenshots/05-hiring-plan.png)
+![Hiring plan grouped by start week](docs/screenshots/06-hiring-plan.png)
 
-### 6. Trace any number
+### 7. Trace any number
 
 Select any cell. The inspector shows the chain behind it: every intermediate
 value, its formula, and the assumption code of each input. Totals open into
@@ -107,16 +118,16 @@ their planning units, and opening headcount into the prior week.
 **Copy as Excel formula** copies a formula that reproduces the value. Shown:
 Manila-1's Over/Under in 2027-W32: −132.4 FTE, the demand above its cap.
 
-![Inspector on Manila-1's Over/Under](docs/screenshots/06-inspector.png)
+![Inspector on Manila-1's Over/Under](docs/screenshots/07-inspector.png)
 
-### 7. Export to Excel
+### 8. Export to Excel
 
 **Export** (top right) saves the current view as .xlsx, keeping its structure:
 merged column-group bands, collapsible outsourcer groups, live SUBTOTAL formulas
-and change formulas. Shown: the comparison from step 4, rendered from the
+and change formulas. Shown: the comparison from step 5, rendered from the
 exported file.
 
-![Exported comparison workbook](docs/screenshots/07-excel-export.png)
+![Exported comparison workbook](docs/screenshots/08-excel-export.png)
 
 Scenarios are kept in the browser's local storage. **Discard scenario**
 returns to a clean start.
@@ -143,6 +154,7 @@ src/engine/   calculation engine; the UI imports src/engine/index.ts only
   supply.ts       attrition, roll-forward and hiring primitives
   siteweek.ts     site-week roll-forward with the recommended class fed back
   plan.ts         unit → site → week plan computation
+  actual.ts       observed weeks: the requirement actuals imply, against actual headcount
   slice.ts        filtered slice of a site-week, supply allocated by share
   trace.ts        calculation trace with Excel equivalents
   calendar.ts     ISO week arithmetic
@@ -150,7 +162,8 @@ src/app/      application shell, plan grid, row model and calculation inspector
 src/scenario/ scenarios: overrides applied to a locked plan's inputs
 src/export/   .xlsx export of plans, comparisons and the hiring plan
 src/testing/  test helpers, never imported by the app
-src/data/     seeded demo dataset, 8 sites, 4 outsourcers, 68 planning units, 52 weeks of 2027
+src/data/     seeded demo dataset, 8 sites, 4 outsourcers, 68 planning units, 52 weeks of 2027,
+              and actuals for weeks 1 to 11
 scripts/      totals.ts
 ```
 
@@ -168,6 +181,7 @@ A textbook capacity model behind the `CapacityEngine` interface in
 - Minimum class size: a recommended class has at least 8 starters, rounded up from the need where room under any cap allows; the extra graduates carry forward as a small surplus
 - Committed pipeline: classes already in training at plan start land in weeks 1 to 6; inside that lead time no new class can land, and any deficit remains as a lead-time shortfall
 - Filters: demand sums over the matching planning units; site supply is allocated to the slice by its share of required FTE
+- Actuals: required FTE from observed volume and AHT by the same requirement arithmetic; Over/Under = observed headcount − that requirement; a filtered slice gets observed headcount by its share of required FTE
 
 Every result carries an ordered trace: label, value, unit, formula, the
 assumption record code of each input, and an Excel formula that reproduces the
@@ -186,6 +200,28 @@ with every metric across the columns. Both use the same rows, filters and
 grouping; the selected cell carries across, and clicking a week column moves
 the focus week. **Density** switches between comfortable 25px rows and compact
 21px rows. Export saves whichever orientation is on screen.
+
+In Periods mode the weeks fall in three bands, named in a strip above the
+months and divided by an accent rule. **Actual**: weeks already elapsed (W01
+to W11, since the plan lands on W12), shaded, in grey numerals. **Plan**: the
+remaining weeks of the locked plan, white. **Scenario**: with a scenario open,
+the remaining weeks show it instead, tinted. A **Var. vs plan** row under each
+row (toggle: **Variance rows**) gives actual − plan in elapsed weeks and
+scenario − plan after them. Variance is coloured by what it does to
+Over/Under: green moves the site towards over (fewer contacts, shorter
+handling, more heads), red towards under. A site whose Over/Under variance
+over the last four elapsed weeks averages 5% of its requirement or more is
+flagged **OFF PLAN**. Metrics mode shows plan figures for every week, and says
+so on an elapsed week.
+
+Actuals are data, not engine output: observed volume and AHT per planning unit
+and headcount per site, from the actuals feed (record codes `ACT27.…`). The
+engine works out the requirement they imply with the plan's own arithmetic,
+at the plan's occupancy and shrinkage, so actual and plan compare like for
+like: actual Over/Under = actual headcount − that requirement. Actual weeks
+carry no hire need. The plan is not re-forecast from actuals: from W12 it is
+the plan as locked. The demo's actuals are seeded: the plan moved a few
+percent either way per site and unit, with Mexico City drifted.
 
 Opens on the locked FY27 production plan at week 2027-W12. Rows are an
 outsourcer header, its sites and a subtotal, then a grand total; grouping switches to
@@ -247,7 +283,10 @@ and the grid agree, and any cell opens its site-week chain in the inspector.
 
 ## Excel export
 
-Export in the top bar saves the current view as .xlsx: the plan grid for the
+Export in the top bar saves the current view as .xlsx: the Periods grid for
+the selected metric (actual weeks shaded and scenario weeks tinted as on
+screen, followed by the locked plan and a variance sheet whose cells are
+formulas against it), the Metrics grid for the
 selected week (with the hiring plan and the assumption register as further
 sheets), a scenario comparison (with its overrides and horizon summary), or
 the hiring plan. The workbook keeps the grid's structure: merged column-group

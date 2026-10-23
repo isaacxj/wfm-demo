@@ -43,6 +43,8 @@ interface ToolbarProps {
   /** Periods mode: the one metric that fills the grid. */
   metric?: NumericKey;
   onMetric?: (m: NumericKey) => void;
+  /** A line about what the grid shows, beside the filter note. */
+  note?: string;
 }
 
 export type GridMode = 'periods' | 'metrics';
@@ -236,6 +238,7 @@ export function Toolbar(props: ToolbarProps) {
 
       <div className="tl-spacer" />
 
+      {props.note && <div className="tl-note">{props.note}</div>}
       {filtered && <div className="tl-note">Supply split by share of required FTE</div>}
 
       {mode && onMode && (

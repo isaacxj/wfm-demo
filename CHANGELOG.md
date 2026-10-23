@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.3 — Actuals, plan and scenario
+
+- Weeks W01 to W11 have elapsed and carry actuals: observed volume and AHT per
+  planning unit, headcount per site. The Periods grid shows them as a shaded
+  **Actual** band, then the locked **Plan**, or the open **Scenario**, tinted.
+- Actual Required FTE is what the observed volume and AHT imply, by the plan's
+  arithmetic; actual Over/Under = observed headcount − that requirement.
+- A **Var. vs plan** row under each row: actual − plan, then scenario − plan.
+  A site whose Over/Under has drifted 5% of its requirement or more over the
+  last four elapsed weeks is flagged **OFF PLAN**.
+- The Periods export adds a locked-plan sheet and a variance sheet of live
+  formulas against it.
+- Screenshots refreshed with the v2 names.
+
+## v2.2 — Grid orientation
+
+- **Periods** mode, the new default: weeks across the columns, one metric in
+  the cells. **Metrics** mode is the v1 grid. A **Density** toggle switches
+  between 25px and 21px rows.
+
 ## v2.1 — Terminology
 
 Names now follow the incumbent WFM tools, so a planner moving from Verint,

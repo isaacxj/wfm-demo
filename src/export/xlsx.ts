@@ -13,7 +13,7 @@ import type ExcelJS from 'exceljs';
 import { deltaOf, type CompareModel, type HorizonSummary } from '../app/compare.ts';
 import { displayRound } from '../app/format.ts';
 import type { HiringPlan } from '../app/hiring.ts';
-import { monthOf, type PeriodModel } from '../app/periods.ts';
+import { monthOf, varianceOf, varianceTone, type Band, type PeriodModel } from '../app/periods.ts';
 import type { PlanWeek } from '../engine/index.ts';
 import { COLUMNS, columnSpec, type ColumnKey, type GridRow, type NumericKey } from '../app/model.ts';
 import type { AssumptionRecord } from '../data/dataset.ts';
@@ -34,6 +34,9 @@ const ARGB = {
   ink400: 'FF7C8796',
   surface1: 'FFF7F9FC',
   surface2: 'FFEEF2F7',
+  surface3: 'FFE3E8EF',
+  accentSoft: 'FFE8EEF7',
+  accentSoft2: 'FFDCE5F2',
   outsourcer: 'FFEDF1F7',
   line1: 'FFE7ECF2',
   line2: 'FFD4DBE4',
@@ -65,6 +68,8 @@ interface CellSpec {
   numFmt?: string;
   tone?: Tone;
   text?: boolean;
+  /** Week band: actual and scenario cells are shaded as on screen. */
+  band?: Band;
 }
 
 interface Col {
@@ -201,13 +206,21 @@ function writeRows(ws: ExcelJS.Worksheet, first: number, cols: readonly Col[], r
         name: isText ? UI : NUM,
         size: 10,
         bold: bold || semi,
-        color: { argb: toneColour(spec?.tone) },
+        color: { argb: spec?.band === 'actual' && !spec.tone ? ARGB.ink600 : toneColour(spec?.tone) },
       };
       cell.alignment = { vertical: 'middle', horizontal: isText ? 'left' : 'right', indent: 1 };
       styleCell(cell, row.kind, false);
+      const shade = spec?.band && row.kind !== 'group' ? BAND_FILL[spec.band][row.kind] : undefined;
+      if (shade) cell.fill = fill(shade);
     });
   });
 }
+
+const BAND_FILL: Readonly<Record<Band, Partial<Record<RowKind, string>>>> = {
+  actual: { site: ARGB.surface1, subtotal: ARGB.surface2, total: ARGB.surface3 },
+  scenario: { site: ARGB.accentSoft, subtotal: ARGB.accentSoft2, total: ARGB.accentSoft2 },
+  plan: {},
+};
 
 function styleCell(cell: ExcelJS.Cell, kind: RowKind, identity: boolean): void {
   cell.fill = fill(ROW_FILL[kind]);
@@ -321,7 +334,12 @@ export function planWorkbook(
   return wb;
 }
 
-/** Periods grid: one metric, one column per week, months as merged bands. */
+/**
+ * Periods grid: one metric, one column per week, months as merged bands.
+ * Elapsed weeks are actuals and the weeks after the plan or scenario, shaded as
+ * on screen. With actuals or a scenario, two more sheets follow in the same
+ * layout: the locked plan, and the variance as live formulas against it.
+ */
 export function periodsWorkbook(
   lib: Lib,
   model: PeriodModel,
@@ -332,25 +350,85 @@ export function periodsWorkbook(
   extras: { hiring?: HiringPlan; assumptions?: readonly AssumptionRecord[]; scenario?: Scenario | null; siteName?: (id: string) => string },
 ): ExcelJS.Workbook {
   const wb = newWorkbook(lib, ctx);
-  const header = columnSpec(metric).header;
+  const spec = columnSpec(metric);
+  const header = spec.header;
   const cols: Col[] = [
     { header: `Site · ${header}`, band: 'Site', width: 34 },
     ...weeks.map((w) => ({ header: w.label.slice(5), band: monthOf(w).label, width: metric === 'volume' ? 11 : 9 })),
   ];
-  const ws = addSheet(wb, sheetName, `${ctx.planName} · ${ctx.scenarioName ?? 'Baseline'} · ${header} by week`, ctx.context, cols, CONVENTIONS);
   const first = 6;
   const ranges = aggregateRanges(model.rows, first);
-  const out: Row[] = model.rows.map((row, i) => ({
-    kind: row.kind,
-    label: row.label,
-    sub: row.code,
-    cells: row.byWeek.map((g, w) => planCell(g, metric, w + 2, ranges.get(i))),
-  }));
-  writeRows(ws, first, cols, out, model.rows.some((r) => r.kind === 'group'));
+  const outline = model.rows.some((r) => r.kind === 'group');
+  const bandText = describeBands(model, weeks, ctx.scenarioName);
+  const sheet = (name: string, title: string, byWeek: (row: PeriodModel['rows'][number]) => readonly GridRow[], shade: boolean) => {
+    const ws = addSheet(wb, name, title, `${ctx.context}${bandText && shade ? ` · ${bandText}` : ''}`, cols, CONVENTIONS);
+    const out: Row[] = model.rows.map((row, i) => ({
+      kind: row.kind,
+      label: row.label,
+      sub: row.code,
+      flag: row.drift && shade ? 'OFF PLAN' : undefined,
+      cells: byWeek(row).map((g, w) => {
+        const cell = planCell(g, metric, w + 2, ranges.get(i));
+        return cell && shade ? { ...cell, band: model.bands[w], tone: model.bands[w] === 'actual' ? undefined : cell.tone } : cell;
+      }),
+    }));
+    writeRows(ws, first, cols, out, outline);
+    return ws;
+  };
+
+  sheet(sheetName, `${ctx.planName} · ${ctx.scenarioName ?? 'Baseline'} · ${header} by week`, (r) => r.byWeek, true);
+
+  if (model.bands.some((b) => b !== 'plan')) {
+    const planName = 'Plan by week';
+    sheet(planName, `${ctx.planName} · locked plan · ${header} by week`, (r) => r.planByWeek, false);
+    const vs = addSheet(
+      wb,
+      'Variance by week',
+      `${ctx.planName} · ${header} variance against the locked plan`,
+      `${bandText}. Variance = ${sheetName} − ${planName}, at display precision.`,
+      cols,
+      CONVENTIONS,
+    );
+    const dp = spec.format === 'int' ? 0 : spec.format === 'pct' ? 3 : 1;
+    const numFmt = spec.format === 'int' ? FMT.signedInt : spec.format === 'pct' ? '+0.0%;-0.0%;0.0%' : FMT.signedOne;
+    const out: Row[] = model.rows.map((row, i) => ({
+      kind: row.kind,
+      label: row.label,
+      sub: row.code,
+      cells: weeks.map((_, w) => {
+        if (row.kind === 'group' || model.bands[w] === 'plan') return null;
+        const v = varianceOf(model, row, w, metric);
+        if (v === null) return { v: '–', tone: 'muted' as const, band: model.bands[w] };
+        const ref = `${colLetter(w + 2)}${first + i}`;
+        return {
+          f: `ROUND('${sheetName}'!${ref}-'${planName}'!${ref},${dp})`,
+          v: Math.round(v * 10 ** dp) / 10 ** dp,
+          numFmt,
+          tone: varianceTone(metric, v) ?? undefined,
+          band: model.bands[w],
+        };
+      }),
+    }));
+    writeRows(vs, first, cols, out, outline);
+  }
+
   if (extras.hiring) hiringSheet(wb, extras.hiring, ctx);
   if (extras.scenario) overridesSheet(wb, extras.scenario, null, ctx, extras.siteName ?? ((id) => id));
   if (extras.assumptions) assumptionsSheet(wb, extras.assumptions, ctx);
   return wb;
+}
+
+/** "W01–W11 actuals (shaded); W12–W52 Scenario 1 (tinted)" */
+function describeBands(model: PeriodModel, weeks: readonly PlanWeek[], scenarioName: string | null): string {
+  const parts: string[] = [];
+  model.bands.forEach((band, i) => {
+    if (i > 0 && model.bands[i - 1] === band) return;
+    let j = i;
+    while (model.bands[j + 1] === band) j++;
+    const range = `${weeks[i]!.label.slice(5)}–${weeks[j]!.label.slice(5)}`;
+    parts.push(band === 'actual' ? `${range} actuals (shaded)` : band === 'scenario' ? `${range} ${scenarioName ?? 'scenario'} (tinted)` : `${range} locked plan`);
+  });
+  return parts.length > 1 || model.bands[0] !== 'plan' ? parts.join('; ') : '';
 }
 
 const COLUMN_BAND: Readonly<Record<string, string>> = {

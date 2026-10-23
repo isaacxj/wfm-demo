@@ -6,7 +6,8 @@ import { ALL_FILTERS, buildRows } from '../app/model.ts';
 import { demoDataset } from '../data/dataset.ts';
 import { engine } from '../engine/index.ts';
 import { applyScenario, type Scenario } from '../scenario/scenario.ts';
-import { buildPeriodRows } from '../app/periods.ts';
+import { buildPeriodRows, varianceOf } from '../app/periods.ts';
+import { buildActuals } from '../data/actuals.ts';
 import { compareWorkbook, fileName, hiringWorkbook, periodsWorkbook, planWorkbook, type ExportContext } from './xlsx.ts';
 
 const ds = demoDataset();
@@ -186,6 +187,36 @@ describe('periods export', async () => {
     const total = model.rows.at(-1)!;
     const r = 6 + model.rows.length - 1;
     expect(num(ws.getCell(`M${r}`))).toBeCloseTo(total.byWeek[11]!.cells.overUnder!, 6);
+  });
+});
+
+describe('periods export with actuals', async () => {
+  const actuals = engine.computeActuals(ds.plan, buildActuals(ds.plan, basePlan));
+  const model = buildPeriodRows(basePlan, ALL_FILTERS, 'outsourcer', { actuals });
+  const wb = await roundTrip(periodsWorkbook(ExcelJS, model, ds.plan.weeks, 'overUnder', ctx, 'Over-Under by week', {}));
+  const ws = wb.getWorksheet('Over-Under by week')!;
+  const mex = 6 + model.rows.findIndex((r) => r.code === 'MEX');
+
+  it('shades the actual weeks and says which weeks are which', () => {
+    expect(String(ws.getCell('A2').value)).toContain('W01–W11 actuals (shaded); W12–W52 locked plan');
+    const fg = (ref: string) => (ws.getCell(ref).fill as ExcelJS.FillPattern).fgColor?.argb;
+    expect(fg(`L${mex}`)).toBe('FFF7F9FC');
+    expect(fg(`M${mex}`)).toBe('FFFFFFFF');
+    expect(String(ws.getCell(`A${mex}`).value)).toContain('[OFF PLAN]');
+  });
+
+  it('adds the locked plan and the variance as live formulas against it', () => {
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Over-Under by week', 'Plan by week', 'Variance by week']);
+    const plan = wb.getWorksheet('Plan by week')!;
+    expectSubtotalsAddUp(plan);
+    expectSubtotalsAddUp(ws);
+    const v = wb.getWorksheet('Variance by week')!;
+    const cell = v.getCell(`J${mex}`).value as ExcelJS.CellFormulaValue;
+    expect(cell.formula).toBe(`ROUND('Over-Under by week'!J${mex}-'Plan by week'!J${mex},1)`);
+    const row = model.rows.find((r) => r.code === 'MEX')!;
+    expect(cell.result).toBeCloseTo(varianceOf(model, row, 8, 'overUnder')!, 9);
+    expect(num(ws.getCell(`J${mex}`)) - num(plan.getCell(`J${mex}`))).toBeCloseTo(Number(cell.result), 6);
+    expect(v.getCell(`M${mex}`).value).toBeNull();
   });
 });
 

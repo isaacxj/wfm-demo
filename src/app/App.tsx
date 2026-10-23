@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { demoDataset } from '../data/dataset.ts';
+import { buildActuals } from '../data/actuals.ts';
 import { engine, periodLabel, type PlanResult } from '../engine/index.ts';
 import { applyScenario, parseStoredScenarios, type Scenario } from '../scenario/scenario.ts';
 import { buildCompare, COMPARE_METRICS, DEFAULT_COMPARE_HIDDEN, deltaOf, deltaTrace, horizonSummary } from './compare.ts';
 import { CompareGrid, type CompareRef } from './components/CompareGrid.tsx';
 import { HiringView, type HiringGrouping, type HiringKey, type HiringRef } from './components/HiringView.tsx';
 import { Grid, type CellRef } from './components/Grid.tsx';
-import { Inspector, planTarget, type InspectorTarget } from './components/Inspector.tsx';
+import { Inspector, periodTarget, planTarget, type InspectorTarget } from './components/Inspector.tsx';
 import { Rail, type View } from './components/Rail.tsx';
 import { ScenarioBar, type DraftOverride } from './components/ScenarioBar.tsx';
 import { StatusBar } from './components/StatusBar.tsx';
-import { PeriodsGrid, type Density } from './components/PeriodsGrid.tsx';
+import { PeriodsGrid, varianceRowId, type Density } from './components/PeriodsGrid.tsx';
 import { Toolbar, type GridMode } from './components/Toolbar.tsx';
 import { buildPeriodRows, DEFAULT_PERIOD_METRIC, isPeriodMetric } from './periods.ts';
 import { TopBar } from './components/TopBar.tsx';
@@ -38,6 +39,7 @@ const dataset = demoDataset();
 const t0 = performance.now();
 const basePlan = engine.computePlan(dataset.plan);
 const baseMs = performance.now() - t0;
+const actuals = engine.computeActuals(dataset.plan, buildActuals(dataset.plan, basePlan));
 const labelOfWeek = (index: number) => periodLabel(dataset.plan.isoYear, index);
 const HORIZON = dataset.plan.weeks.length;
 const siteName = (id: string) => dataset.plan.sites.find((s) => s.id === id)?.name ?? id;
@@ -64,6 +66,8 @@ function readStored<T>(key: string, fallback: T, parse: (raw: string) => T): T {
 }
 
 const MODE_KEY = 'capacity-planner.grid-mode';
+const VARIANCE_KEY = 'capacity-planner.variance-rows';
+const VARIANCE_PREFIX = varianceRowId('');
 const DENSITY_KEY = 'capacity-planner.density';
 
 /** Per-session preference: survives reloads in this tab, not across sessions. */
@@ -124,6 +128,7 @@ export function App() {
   const [gridMode, setGridMode] = useState<GridMode>(() => readSession<GridMode>(MODE_KEY, ['periods', 'metrics'], 'periods'));
   const [density, setDensity] = useState<Density>(() => readSession<Density>(DENSITY_KEY, ['comfortable', 'compact'], 'comfortable'));
   const [periodMetric, setPeriodMetric] = useState<NumericKey>(DEFAULT_PERIOD_METRIC);
+  const [showVariance, setShowVariance] = useState<boolean>(() => readSession(VARIANCE_KEY, ['on', 'off'], 'on') === 'on');
 
   useEffect(() => writeStored(SCENARIOS_KEY, JSON.stringify(scenarios)), [scenarios]);
 
@@ -207,6 +212,10 @@ export function App() {
       setGridMode(m);
       // Keep the selected number in view: Periods shows one metric, so show the selected one.
       if (m === 'periods' && selected && !selected.side && isPeriodMetric(selected.key)) setPeriodMetric(selected.key);
+      // Metrics has no variance rows: keep the row the variance belongs to.
+      if (m === 'metrics' && selected && !selected.side && selected.rowId.startsWith(VARIANCE_PREFIX)) {
+        setSelected({ rowId: selected.rowId.slice(VARIANCE_PREFIX.length), key: selected.key });
+      }
     },
     [selected],
   );
@@ -215,6 +224,14 @@ export function App() {
   const changePeriodMetric = useCallback((m: NumericKey) => {
     setPeriodMetric(m);
     setSelected((sel) => (sel && !sel.side ? { rowId: sel.rowId, key: m } : sel));
+  }, []);
+
+  const toggleVariance = useCallback(() => {
+    setShowVariance((on) => {
+      writeSession(VARIANCE_KEY, on ? 'off' : 'on');
+      return !on;
+    });
+    setSelected((sel) => (sel && !sel.side && sel.rowId.startsWith(VARIANCE_PREFIX) ? null : sel));
   }, []);
 
   const changeDensity = useCallback((d: Density) => {
@@ -249,8 +266,11 @@ export function App() {
   const opts = useMemo(() => ({ week, filters, grouping }), [week, filters, grouping]);
   const rows = useMemo(() => buildRows(shownPlan, opts), [shownPlan, opts]);
   const periodModel = useMemo(
-    () => (view === 'plans' && gridMode === 'periods' ? buildPeriodRows(shownPlan, filters, grouping) : null),
-    [view, gridMode, shownPlan, filters, grouping],
+    () =>
+      view === 'plans' && gridMode === 'periods'
+        ? buildPeriodRows(basePlan, filters, grouping, { actuals, scenario: scen?.plan ?? null })
+        : null,
+    [view, gridMode, scen, filters, grouping],
   );
   const compare = useMemo(
     () => (view === 'scenarios' && scen ? buildCompare(basePlan, scen.plan, opts, changedOnly) : null),
@@ -297,6 +317,10 @@ export function App() {
   const target = useMemo<InspectorTarget | null>(() => {
     if (view === 'hiring') return hiringTarget;
     if (!selected) return null;
+    if (view === 'plans' && periodModel) {
+      if (selected.side) return null;
+      return periodTarget(periodModel, selected, week, { scenario: active?.name ?? null, weekLabel }, VARIANCE_PREFIX);
+    }
     if (view === 'plans' || !compare || !active) return planTarget(rows, selected.side ? null : selected);
     const ref = selected as CompareRef;
     if (!ref.side) return null;
@@ -315,7 +339,7 @@ export function App() {
       shown: formatDelta(deltaOf(row, key), spec.format ?? 'one', key === 'overUnder'),
       isInput: false,
     };
-  }, [selected, view, compare, active, rows, hiringTarget]);
+  }, [selected, view, compare, active, rows, hiringTarget, periodModel, week, weekLabel]);
 
   const exportView = useCallback(async () => {
     const wk = basePlan.weeks[week - 1];
@@ -389,6 +413,7 @@ export function App() {
     onHidden: (h: ReadonlySet<ColumnKey>) => void,
     extra?: ReactNode,
     withMode = false,
+    note?: string,
   ) => (
     <Toolbar
       weeks={basePlan.weeks}
@@ -407,6 +432,7 @@ export function App() {
       onDensity={changeDensity}
       metric={periodMetric}
       onMetric={changePeriodMetric}
+      note={note}
     >
       {extra}
     </Toolbar>
@@ -431,7 +457,19 @@ export function App() {
   } else if (view === 'plans' && periodModel) {
     main = (
       <>
-        {toolbar(undefined, hidden, setHidden, undefined, true)}
+        {toolbar(
+          undefined,
+          hidden,
+          setHidden,
+          <div className="tl-seg">
+            <span className="seg-group" role="group" aria-label="Variance">
+              <button aria-pressed={showVariance} onClick={toggleVariance} title="A row under each row: actual − plan in elapsed weeks, scenario − plan after">
+                Variance rows
+              </button>
+            </span>
+          </div>,
+          true,
+        )}
         <div className="grid-scroll">
           <PeriodsGrid
             model={periodModel}
@@ -442,6 +480,9 @@ export function App() {
             focusWeek={week}
             selected={selected && !selected.side ? selected : null}
             onSelect={selectPeriodCell}
+            showVariance={showVariance}
+            planName={PLAN_TITLE}
+            scenarioName={active?.name ?? null}
           />
         </div>
       </>
@@ -449,7 +490,14 @@ export function App() {
   } else if (view === 'plans') {
     main = (
       <>
-        {toolbar(undefined, hidden, setHidden, undefined, true)}
+        {toolbar(
+          undefined,
+          hidden,
+          setHidden,
+          undefined,
+          true,
+          week <= actuals.throughWeek ? `${weekLabel.slice(5)} has elapsed: plan figures shown, actuals in Periods` : undefined,
+        )}
         <div className="grid-scroll">
           <Grid
             rows={rows}

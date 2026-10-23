@@ -98,8 +98,13 @@ function differs(a: GridRow, b: GridRow): boolean {
 
 /** Delta as the grid shows it: difference of displayed values for summed metrics. */
 export function deltaOf(row: CompareRow, key: NumericKey): number | null {
-  const b = row.base.cells[key];
-  const s = row.scen.cells[key];
+  return differenceOf(row.base, row.scen, key);
+}
+
+/** `other` − `base` for one metric, as the grid shows it: summed metrics differ by their displayed values. */
+export function differenceOf(base: GridRow, other: GridRow, key: NumericKey): number | null {
+  const b = base.cells[key];
+  const s = other.cells[key];
   if (b === null || b === undefined || s === null || s === undefined) return null;
   const spec = columnSpec(key);
   const format = spec.format ?? 'one';
@@ -109,22 +114,39 @@ export function deltaOf(row: CompareRow, key: NumericKey): number | null {
 
 /** Trace for a delta cell: scenario minus baseline, each side opening into its own chain. */
 export function deltaTrace(row: CompareRow, key: NumericKey, model: CompareModel, scenarioName: string): CellTrace | null {
+  return differenceTrace(
+    { row: row.base, rows: model.baseRows, label: 'Baseline' },
+    { row: row.scen, rows: model.scenRows, label: scenarioName },
+    key,
+    { label: `${columnSpec(key).header} change`, formula: 'scenario − baseline' },
+  );
+}
+
+export interface TraceSide {
+  row: GridRow;
+  /** The rows the side was built in, to find an aggregate row's members. */
+  rows: readonly GridRow[];
+  label: string;
+}
+
+/** Trace for `other` − `base`: each side an input that opens into its own chain. */
+export function differenceTrace(base: TraceSide, other: TraceSide, key: NumericKey, step: { label: string; formula: string }): CellTrace | null {
   const spec = columnSpec(key);
   const format = spec.format ?? 'one';
-  const baseTrace = cellTrace(row.base, key, membersOf(model.baseRows, row.base));
-  const scenTrace = cellTrace(row.scen, key, membersOf(model.scenRows, row.scen));
-  const b = row.base.cells[key];
-  const s = row.scen.cells[key];
-  if (!baseTrace || !scenTrace || b == null || s == null) return null;
+  const baseTrace = cellTrace(base.row, key, membersOf(base.rows, base.row));
+  const otherTrace = cellTrace(other.row, key, membersOf(other.rows, other.row));
+  const b = base.row.cells[key];
+  const s = other.row.cells[key];
+  if (!baseTrace || !otherTrace || b == null || s == null) return null;
   const summed = spec.aggregate === 'sum';
   const unit = baseTrace.steps.find((x) => x.key === baseTrace.focus)?.unit ?? 'FTE';
   const t = new TraceBuilder();
-  const bRef = t.input('base', summed ? 'Baseline (as displayed)' : 'Baseline', summed ? displayRound(b, format) : b, unit);
-  t.attach('base', [{ id: 'base', label: 'Baseline', steps: baseTrace.steps, focus: baseTrace.focus }]);
-  const sRef = t.input('scen', summed ? `${scenarioName} (as displayed)` : scenarioName, summed ? displayRound(s, format) : s, unit);
-  t.attach('scen', [{ id: 'scen', label: scenarioName, steps: scenTrace.steps, focus: scenTrace.focus }]);
-  const value = deltaOf(row, key) ?? 0;
-  t.calc('delta', `${spec.header} change`, value, unit, 'scenario − baseline', `${sRef.expr}-${bRef.expr}`, [sRef, bRef]);
+  const bRef = t.input('base', summed ? `${base.label} (as displayed)` : base.label, summed ? displayRound(b, format) : b, unit);
+  t.attach('base', [{ id: 'base', label: base.label, steps: baseTrace.steps, focus: baseTrace.focus }]);
+  const sRef = t.input('scen', summed ? `${other.label} (as displayed)` : other.label, summed ? displayRound(s, format) : s, unit);
+  t.attach('scen', [{ id: 'scen', label: other.label, steps: otherTrace.steps, focus: otherTrace.focus }]);
+  const value = differenceOf(base.row, other.row, key) ?? 0;
+  t.calc('delta', step.label, value, unit, step.formula, `${sRef.expr}-${bRef.expr}`, [sRef, bRef]);
   return { steps: t.steps, focus: 'delta' };
 }
 

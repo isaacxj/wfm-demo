@@ -3,6 +3,7 @@
  * snapshot in grid column order. Run with `npm run totals`.
  */
 import { demoDataset } from '../src/data/dataset.ts';
+import { buildActuals } from '../src/data/actuals.ts';
 import { fnv1a } from '../src/data/rng.ts';
 import { engine, type SitePlan } from '../src/engine/index.ts';
 
@@ -194,6 +195,26 @@ if (mnl1) {
       (worst ? `worst ${worst.weekLabel}, required ${one(worst.requiredFte)}, shortfall ${one(worst.flow.capShortfall)}` : ''),
   );
 }
+
+// Actuals ---------------------------------------------------------------------
+
+const actuals = engine.computeActuals(ds.plan, buildActuals(ds.plan, plan));
+console.log();
+console.log(`Actuals W01–W${String(actuals.throughWeek).padStart(2, '0')}: required FTE and Over/Under against plan, mean of the last four weeks`);
+table(
+  ['Site', 'Required, actual', 'Required, plan', 'Δ %', 'Over/Under, actual', 'Over/Under, plan', 'Δ'],
+  actuals.sites.map((a) => {
+    const sp = plan.sites.find((s) => s.site.id === a.siteId)!;
+    const last = a.periods.slice(-4);
+    const planned = sp.periods.slice(actuals.throughWeek - 4, actuals.throughWeek);
+    const mean = (xs: number[]) => sum(xs) / xs.length;
+    const ra = mean(last.map((p) => p.requiredFte));
+    const rp = mean(planned.map((p) => p.requiredFte));
+    const oa = mean(last.map((p) => p.overUnder));
+    const op = mean(planned.map((p) => p.flow.overUnder));
+    return [sp.site.name, one(ra), one(rp), `${signed(((ra / rp) - 1) * 100)}`, signed(oa), signed(op), signed(oa - op)];
+  }),
+);
 
 function sum(xs: readonly number[]): number {
   return xs.reduce((s, x) => s + x, 0);
