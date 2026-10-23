@@ -82,9 +82,10 @@ export type {
   SitePeriod,
   MovedClass,
   SitePlan,
+  StaffType,
   UnitPeriod,
 } from './plan.ts';
 export { DEFAULT_CHAT_EFFICIENCY, REQUIRED_FTE_NOTE } from './requirement.ts';
 export { WEEKS_PER_MONTH } from './supply.ts';
-export { unitLabel } from './plan.ts';
+export { unitLabel, workWeekOf } from './plan.ts';
 export { periodLabel, periodStart, isoWeekLabel, toIsoDate } from './calendar.ts';

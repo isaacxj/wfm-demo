@@ -3,7 +3,7 @@ import type { PlanWeek } from '../../engine/index.ts';
 import { shortDate } from '../format.ts';
 import {
   ALL_FILTERS,
-  CHANNEL_LABEL,
+  filterValueLabel,
   COLUMN_GROUPS,
   COLUMNS,
   FILTER_DIMENSIONS,
@@ -49,11 +49,13 @@ interface ToolbarProps {
   paused?: boolean;
   pending?: number;
   onPause?: () => void;
+  /** Opens bulk entry. */
+  onBulk?: () => void;
 }
 
 export type GridMode = 'periods' | 'metrics';
 
-const valueLabel = (key: FilterKey, v: string) => (key === 'channel' ? (CHANNEL_LABEL[v] ?? v) : v);
+const valueLabel = filterValueLabel;
 
 export function Toolbar(props: ToolbarProps) {
   const { weeks, week, onWeek, grouping, onGrouping, filters, onFilters, hidden, onHidden, children } = props;
@@ -239,6 +241,14 @@ export function Toolbar(props: ToolbarProps) {
       </div>
 
       {children}
+
+      {props.onBulk && (
+        <div className="tl-seg">
+          <button className="tl-button" onClick={props.onBulk} title="Edit many rows of one metric at once">
+            Bulk entry
+          </button>
+        </div>
+      )}
 
       <div className="tl-spacer" />
 

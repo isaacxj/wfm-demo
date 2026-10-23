@@ -63,7 +63,7 @@ describe('row model', () => {
       { ...ALL_FILTERS, lob: ['Mobile'] },
       { ...ALL_FILTERS, language: ['TL'] },
       { ...ALL_FILTERS, channel: ['chat', 'deferred'] },
-      { lob: ['Internet'], language: ['EN', 'FR'], channel: ['voice'] },
+      { ...ALL_FILTERS, lob: ['Internet'], language: ['EN', 'FR'], channel: ['voice'] },
     ];
     for (const filters of cases) {
       for (const week of [1, 12, 32, 52]) expectReconciles(buildRows(plan, { week, filters, grouping: 'outsourcer' }));

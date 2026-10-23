@@ -34,14 +34,14 @@ Statixx Solutions. All data in this repository is invented.
 | v2.2 | Grid orientation: Periods and Metrics modes; density | Done |
 | v2.3 | Actuals, plan and scenario bands | Done |
 | v2.4 | Pause recalculation; class constraints | Done |
-| v2.5 | Bulk entry; Staff Type | Not started |
+| v2.5 | Bulk entry; Staff Type | Done |
 | v2.6 | Driver and event register | Not started |
 | v2.7 | Budget variance; report view | Not started |
 
 ## Demo walkthrough
 
 Eight steps: the demo script, plus actuals. Everything runs in the browser on an
-invented 2027 dataset: 8 sites, 4 outsourcers, 68 planning units, 52 weeks.
+invented 2027 dataset: 8 sites, 4 outsourcers, 88 planning units, 52 weeks.
 
 ### 1. Open the locked production plan and read the grid
 
@@ -54,7 +54,7 @@ each row gives actual − plan. Read the whole year for every site in one pass:
 Manila-1 runs under in the marketing-spike weeks W31 to W34. **Metric** switches
 the number shown. **Metrics** (top right) turns the grid round to one week with
 columns running demand → requirement → supply → over/under and hiring. Step through weeks with ‹ ›; filter by business unit,
-language and channel; regroup by country. Subtotals add the displayed site values exactly.
+language, channel and staff type; regroup by country. Subtotals add the displayed site values exactly.
 Faint left markers show the input cells a planner may change. Manila-1 carries
 a **CAP** flag whenever its headcount sits at its contracted cap of 980.
 
@@ -64,7 +64,7 @@ Mexico City carries an **OFF PLAN** flag, and its variance row runs red from
 W04. It took more contacts than forecast, they ran longer, and attrition ran
 ahead of plan: over W08 to W11 it averaged 70.7 FTE further under than
 planned, 11.2% of its requirement. Every other site is within a few percent
-either way. Select its actual Over/Under in W09 (−78.9): the inspector says
+either way. Select its actual Over/Under in W09 (−77.5): the inspector says
 the week is observed, names the drift, and traces the number to the actuals
 records (`ACT27.MEX.HC.W09` for headcount).
 
@@ -75,17 +75,26 @@ records (`ACT27.MEX.HC.W09` for headcount).
 Open **Scenarios** → **Fork scenario from v3** → **+ Add override** → **AHT**,
 +5, all sites, all weeks → **Apply**. Every metric now shows baseline,
 scenario and change side by side. In 2027-W12, Required FTE rises by
-**+243.1**. Over the year, hires to start rise from 3,443 to 3,804. The baseline
+**+243.2**. Over the year, hires to start rise from 3,442 to 3,801. The baseline
 stays locked; the scenario is a separate, fully recalculated plan.
 
 ![AHT +5% compared with the baseline](docs/screenshots/03-scenario-aht.png)
+
+Changing many rows at once: **Bulk entry** (toolbar) opens a view over the
+grid. Pick a metric on the left (volume, AHT, shrinkage, occupancy ceiling,
+work week, attrition, HC cap), narrow the rows by outsourcer, site, business
+unit, language, channel and staff type, then type into the rows, or fill every
+listed row with one value. Shown: AHT +5% on Accenture's 14 voice queues, W12
+to W52. **Apply and recalculate** closes it and recalculates once.
+
+![Bulk entry: AHT +5% on Accenture's voice queues](docs/screenshots/09-bulk-entry.png)
 
 ### 4. Add 10,000 contacts a week and compare side by side
 
 Remove the AHT override (× on its chip), then **+ Add override** → **Volume**,
 +10,000 contacts / week → **Apply**. The grand total volume change is exactly
 **+10,000**, split across planning units by their share of each week's volume.
-Required FTE moves **+44.5** in W12. "Changed rows" / "All rows" toggles the
+Required FTE moves **+45.5** in W12. "Changed rows" / "All rows" toggles the
 unchanged sites. The strip above the grid summarises the whole year.
 
 ![+10,000 contacts a week](docs/screenshots/04-scenario-volume.png)
@@ -94,9 +103,9 @@ unchanged sites. The strip above the grid summarises the whole year.
 
 **+ Add override** → **HC cap** → Manila-1 → **900** → **Apply**. Manila-1's
 Planned FTE drops to 889, under the cap (W12's class would have started in W06,
-which is blocked for Lunar New Year), and its Over/Under falls by **−87.9**.
+which is blocked for Lunar New Year), and its Over/Under falls by **−88.2**.
 Selecting the change cell shows the cap note in the inspector: requirement
-exceeds the cap, and 83.5 FTE cannot be hired at this site.
+exceeds the cap, and 83.7 FTE cannot be hired at this site.
 
 To stage several edits, **Pause recalculation** first (toolbar, right). Edits
 then wait: their chips are marked STAGED, the grid greys out, and the status
@@ -109,7 +118,7 @@ the status bar's run counter goes up by one.
 
 **Hiring plan** in the rail. This is the recruitment instruction: for each start
 week, which site hires how many, training and nesting weeks, the week the class
-is productive, and why. 185 classes and 3,443 starters across the year; the
+is productive, and why. 184 classes and 3,442 starters across the year; the
 busiest start week is 2027-W25, 427 starters ahead of the marketing spike.
 Classes hold 8 to 30, a site starts at most two a week, and no class starts in
 a blocked week (W06 Lunar New Year, W12 Holy Week, W51 Christmas, W52 New
@@ -175,7 +184,7 @@ src/app/      application shell, plan grid, row model and calculation inspector
 src/scenario/ scenarios: overrides applied to a locked plan's inputs
 src/export/   .xlsx export of plans, comparisons and the hiring plan
 src/testing/  test helpers, never imported by the app
-src/data/     seeded demo dataset, 8 sites, 4 outsourcers, 68 planning units, 52 weeks of 2027,
+src/data/     seeded demo dataset, 8 sites, 4 outsourcers, 88 planning units, 52 weeks of 2027,
               and actuals for weeks 1 to 11
 scripts/      totals.ts
 ```
@@ -186,6 +195,7 @@ A textbook capacity model behind the `CapacityEngine` interface in
 `src/engine/index.ts`. A replacement engine implements the same interface.
 
 - Requirement: workload = volume × AHT ÷ 3600; productive FTE = workload ÷ (work week × occupancy); required FTE = productive FTE ÷ (1 − shrinkage). Required FTE includes shrinkage
+- Staff type: each planning unit is full-time or part-time. A part-time unit plans at its site's part-time work week (Kingston and Mexico City 24 hours, Toronto 20), so the same workload needs more heads; requirement and supply are counted in heads throughout
 - Over/Under = planned FTE − required FTE; positive is over, negative is under
 - Chat: effective AHT = AHT ÷ (concurrency × efficiency). Deferred work applies no occupancy ceiling
 - Interval: Erlang C, always floored at ceil(traffic ÷ occupancy ceiling)
@@ -239,8 +249,8 @@ percent either way per site and unit, with Mexico City drifted.
 
 Opens on the locked FY27 production plan at week 2027-W12. Rows are an
 outsourcer header, its sites and a subtotal, then a grand total; grouping switches to
-country or none. The toolbar filters by week, business unit, language and
-channel. Under a filter, demand covers only the matching planning units and
+country or none. The toolbar filters by week, business unit, language,
+channel and staff type. Under a filter, demand covers only the matching planning units and
 site supply is split by share of required FTE; the supply band says so.
 
 Subtotals add the site values as displayed, so every summed column reconciles
@@ -290,6 +300,27 @@ reads "Recalculation paused · N pending changes", counting each edit. **Resume*
 recalculates once with all of them. The status bar's run counter numbers each
 calculation since the page opened, so a resume after four edits shows one
 more run, not four.
+
+## Bulk entry
+
+**Bulk entry** in the toolbar opens a view over the grid for changing many rows
+of one metric at once. A metric tree on the left: Demand (volume, AHT),
+Requirement (shrinkage, occupancy ceiling, work week), Supply (attrition, HC
+cap). Filters across the top: outsourcer, site, business unit, language,
+channel and staff type; a filter that does not narrow the chosen metric's rows
+is greyed out. Volume and AHT list planning units and change by a percentage
+over a week range, by default the planned weeks W12 to W52; shrinkage,
+occupancy, attrition and the cap list sites and are set for the whole horizon;
+the work week lists each site's full-time and part-time week. Each row shows
+its value now, the edit and the value it would take. "Fill" puts one value
+into every listed row; rows can then be changed one by one.
+
+Nothing recalculates while the view is open. **Apply and recalculate** turns
+the edits into one bulk override per metric (a chip such as "Bulk · AHT, by
+row · 14 planning units · W12–W52"), and the plan recalculates once. On the
+locked plan it forks a scenario first. While recalculation is paused, each
+metric's override counts as one pending change. Every changed input carries
+the override's code in the inspector, like any other override.
 
 ## Hiring plan
 

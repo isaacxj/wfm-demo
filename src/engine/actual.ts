@@ -13,7 +13,7 @@
  * FTE, the same rule the plan uses for supply.
  */
 import { periodRequirement, REQUIRED_FTE_NOTE } from './requirement.ts';
-import { rollUpDemand, type DemandCell, type PlanInput, type PlanningUnit, type UnitPeriod } from './plan.ts';
+import { rollUpDemand, workWeekOf, type DemandCell, type PlanInput, type PlanningUnit, type UnitPeriod } from './plan.ts';
 import { TraceBuilder, group, type TraceStep } from './trace.ts';
 
 export interface ObservedHeadcount {
@@ -70,7 +70,7 @@ export function computeActuals(input: PlanInput, actuals: ActualInput): ActualRe
           volume: cell.volume,
           aht: cell.aht,
           channel: unit.channel,
-          workWeekHours: site.workWeekHours,
+          workWeekHours: workWeekOf(site, unit).hours,
           occupancyCeiling: site.occupancyCeiling,
           shrinkage: site.shrinkage,
           concurrency: unit.concurrency,
@@ -78,7 +78,7 @@ export function computeActuals(input: PlanInput, actuals: ActualInput): ActualRe
           codes: {
             volume: cell.source,
             aht: cell.source,
-            workWeekHours: site.codes.workWeekHours,
+            workWeekHours: workWeekOf(site, unit).code,
             occupancyCeiling: site.codes.occupancyCeiling,
             shrinkage: site.codes.shrinkage,
             concurrency: unit.codes?.concurrency,

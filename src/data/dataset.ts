@@ -4,7 +4,7 @@
  * Deterministic: seasonality is a fixed table and all variation comes from
  * seeded integer streams, so output is identical on every run and engine.
  */
-import type { Channel, DemandCell, PlanConstants, PlanInput, PlanWeek, PlanningUnit, SiteInput } from '../engine/index.ts';
+import type { Channel, DemandCell, PlanConstants, PlanInput, PlanWeek, PlanningUnit, SiteInput, StaffType } from '../engine/index.ts';
 import { DEFAULT_CHAT_EFFICIENCY, WEEKS_PER_MONTH, periodLabel, periodStart, toIsoDate } from '../engine/index.ts';
 import { between, streamFor } from './rng.ts';
 
@@ -22,6 +22,18 @@ export const WEEKLY_HIRE_RATE = 0.03;
 export const LINES_OF_BUSINESS = ['Mobile', 'Internet', 'Cable'] as const;
 export const LANGUAGES = ['EN', 'FR', 'ES', 'TL'] as const;
 export const CHANNELS = ['voice', 'chat', 'deferred'] as const satisfies readonly Channel[];
+
+export const STAFF_TYPES = ['full-time', 'part-time'] as const satisfies readonly StaffType[];
+
+/**
+ * Sites with a part-time programme: the part-time work week, and the share of
+ * each voice and chat queue's requirement part-timers carry.
+ */
+export const PART_TIME: Readonly<Record<string, { hours: number; share: number }>> = {
+  KIN: { hours: 24, share: 0.3 },
+  MEX: { hours: 24, share: 0.25 },
+  YYZ: { hours: 20, share: 0.4 },
+};
 
 export type LineOfBusiness = (typeof LINES_OF_BUSINESS)[number];
 export type Language = (typeof LANGUAGES)[number];
@@ -154,6 +166,7 @@ export interface AssumptionRecord {
 export interface UnitMeta extends PlanningUnit {
   lob: LineOfBusiness;
   language: Language;
+  staffType: StaffType;
 }
 
 export interface Dataset {
@@ -174,11 +187,14 @@ export function buildDataset(seed = SEED): Dataset {
   const committedWeeks = CONSTANTS.trainingWeeks + CONSTANTS.nestingWeeks;
   const sites: SiteInput[] = SITE_TABLE.map((row) => {
     const hires = Math.round(row.openingHeadcount * WEEKLY_HIRE_RATE);
+    const pt = PART_TIME[row.id];
     return {
       ...row,
+      ...(pt ? { partTimeWorkWeekHours: pt.hours } : {}),
       committedHires: weeks.map((wk) => (wk.index <= committedWeeks ? hires : 0)),
       codes: {
         workWeekHours: `${row.id}.WWK`,
+        ...(pt ? { partTimeWorkWeekHours: `${row.id}.PTW` } : {}),
         occupancyCeiling: `${row.id}.OCC`,
         shrinkage: `${row.id}.SHR`,
         monthlyAttrition: `${row.id}.ATT`,
@@ -214,31 +230,41 @@ export function buildDataset(seed = SEED): Dataset {
     const totalWeight = drafts.reduce((s, d) => s + d.weight, 0);
     const siteRequired = site.openingHeadcount * cov.loadFactor;
 
+    const pt = PART_TIME[site.id];
     for (const d of drafts) {
-      const unit: UnitMeta = { id: d.id, siteId: site.id, lob: d.lob, language: d.language, channel: d.channel };
-      let handleSeconds = d.baseAht;
-      if (d.channel === 'chat') {
-        const c = cov.concurrency ?? 2;
-        unit.concurrency = c;
-        unit.codes = { concurrency: `${site.id}.CHC`, chatEfficiency: `GLB.CEF${c}` };
-        handleSeconds = d.baseAht / (c * (DEFAULT_CHAT_EFFICIENCY[c] ?? 1));
+      // A part-time programme takes a share of each voice and chat queue as a unit of its own.
+      const split = pt && d.channel !== 'deferred' ? pt.share : 0;
+      const kinds: { staffType: StaffType; id: string; share: number; hours: number }[] = [
+        { staffType: 'full-time', id: d.id, share: 1 - split, hours: site.workWeekHours },
+      ];
+      if (split > 0) kinds.push({ staffType: 'part-time', id: `${d.id}-PT`, share: split, hours: pt!.hours });
+
+      for (const k of kinds) {
+        const unit: UnitMeta = { id: k.id, siteId: site.id, lob: d.lob, language: d.language, channel: d.channel, staffType: k.staffType };
+        let handleSeconds = d.baseAht;
+        if (d.channel === 'chat') {
+          const c = cov.concurrency ?? 2;
+          unit.concurrency = c;
+          unit.codes = { concurrency: `${site.id}.CHC`, chatEfficiency: `GLB.CEF${c}` };
+          handleSeconds = d.baseAht / (c * (DEFAULT_CHAT_EFFICIENCY[c] ?? 1));
+        }
+        units.push(unit);
+
+        // Volume that produces this unit's share of the required requirement, at its own work week.
+        const occ = d.channel === 'deferred' ? 1 : site.occupancyCeiling;
+        const productiveHours = siteRequired * (d.weight / totalWeight) * k.share * (1 - site.shrinkage) * k.hours * occ;
+        const baseVolume = (productiveHours * 3600) / handleSeconds;
+
+        const noise = streamFor(seed, `weekly:${k.id}`);
+        demand[k.id] = weeks.map((week, w) => {
+          const season = SEASONALITY[w] ?? 1;
+          const trend = 1 + CHANNEL_TREND[d.channel] * (w / (HORIZON_WEEKS - 1));
+          const volume = Math.round(baseVolume * season * trend * between(noise, 0.975, 1.025));
+          const spike = MARKETING_SPIKE_WEEKS.includes(week.index) ? 1 + SPIKE_AHT_LIFT : 1;
+          const aht = Math.round(d.baseAht * spike * between(noise, 0.985, 1.015));
+          return { volume, aht, source: `FC27.${k.id}.W${String(week.index).padStart(2, '0')}` };
+        });
       }
-      units.push(unit);
-
-      // Volume that produces this unit's share of the required requirement.
-      const occ = d.channel === 'deferred' ? 1 : site.occupancyCeiling;
-      const productiveHours = siteRequired * (d.weight / totalWeight) * (1 - site.shrinkage) * site.workWeekHours * occ;
-      const baseVolume = (productiveHours * 3600) / handleSeconds;
-
-      const noise = streamFor(seed, `weekly:${d.id}`);
-      demand[d.id] = weeks.map((week, w) => {
-        const season = SEASONALITY[w] ?? 1;
-        const trend = 1 + CHANNEL_TREND[d.channel] * (w / (HORIZON_WEEKS - 1));
-        const volume = Math.round(baseVolume * season * trend * between(noise, 0.975, 1.025));
-        const spike = MARKETING_SPIKE_WEEKS.includes(week.index) ? 1 + SPIKE_AHT_LIFT : 1;
-        const aht = Math.round(d.baseAht * spike * between(noise, 0.985, 1.015));
-        return { volume, aht, source: `FC27.${d.id}.W${String(week.index).padStart(2, '0')}` };
-      });
     }
   }
 
@@ -272,7 +298,7 @@ function assumptionRegister(sites: readonly SiteInput[]): AssumptionRecord[] {
   for (const s of sites) {
     const scope = `${s.outsourcer} / ${s.name}`;
     records.push(
-      { code: s.codes.workWeekHours, label: 'Work week', value: s.workWeekHours, unit: 'hours', scope },
+      { code: s.codes.workWeekHours, label: 'Work week, full-time', value: s.workWeekHours, unit: 'hours', scope },
       { code: s.codes.occupancyCeiling, label: 'Occupancy ceiling', value: s.occupancyCeiling, unit: 'ratio', scope },
       { code: s.codes.shrinkage, label: 'Shrinkage', value: s.shrinkage, unit: 'ratio', scope },
       { code: s.codes.monthlyAttrition, label: 'Monthly attrition', value: s.monthlyAttrition, unit: 'ratio', scope },
@@ -280,6 +306,9 @@ function assumptionRegister(sites: readonly SiteInput[]): AssumptionRecord[] {
       { code: s.codes.openingHeadcount, label: 'Opening headcount, week 1', value: s.openingHeadcount, unit: 'heads', scope },
       { code: s.codes.committedHires, label: 'Committed hires per week, weeks 1 to 6', value: s.committedHires[0] ?? 0, unit: 'heads', scope },
     );
+    if (s.codes.partTimeWorkWeekHours) {
+      records.push({ code: s.codes.partTimeWorkWeekHours, label: 'Work week, part-time', value: s.partTimeWorkWeekHours ?? null, unit: 'hours', scope });
+    }
     const conc = COVERAGE[s.id]?.concurrency;
     if (conc !== undefined && COVERAGE[s.id]?.channels.includes('chat')) {
       records.push({ code: `${s.id}.CHC`, label: 'Chat concurrency', value: conc, unit: 'sessions', scope });

@@ -86,6 +86,7 @@ export const FILTER_DIMENSIONS = [
   { key: 'lob', label: 'Business Unit', values: ['Mobile', 'Internet', 'Cable'] },
   { key: 'language', label: 'Language', values: ['EN', 'FR', 'ES', 'TL'] },
   { key: 'channel', label: 'Channel', values: ['voice', 'chat', 'deferred'] },
+  { key: 'staffType', label: 'Staff Type', values: ['full-time', 'part-time'] },
 ] as const;
 
 export type FilterKey = (typeof FILTER_DIMENSIONS)[number]['key'];
@@ -97,6 +98,7 @@ export const ALL_FILTERS: Filters = {
   lob: FILTER_DIMENSIONS[0].values,
   language: FILTER_DIMENSIONS[1].values,
   channel: FILTER_DIMENSIONS[2].values,
+  staffType: FILTER_DIMENSIONS[3].values,
 };
 
 export function isFiltered(filters: Filters): boolean {
@@ -107,10 +109,19 @@ export function unitPredicate(filters: Filters): (u: PlanningUnit) => boolean {
   const lob = new Set(filters.lob);
   const language = new Set(filters.language);
   const channel = new Set<string>(filters.channel);
-  return (u) => lob.has(u.lob) && language.has(u.language) && channel.has(u.channel);
+  const staffType = new Set<string>(filters.staffType);
+  return (u) => lob.has(u.lob) && language.has(u.language) && channel.has(u.channel) && staffType.has(u.staffType ?? 'full-time');
 }
 
 export const CHANNEL_LABEL: Readonly<Record<string, string>> = { voice: 'Voice', chat: 'Chat', deferred: 'Deferred' };
+export const STAFF_TYPE_LABEL: Readonly<Record<string, string>> = { 'full-time': 'Full-time', 'part-time': 'Part-time' };
+
+/** A filter value as the screen names it. */
+export function filterValueLabel(key: FilterKey, value: string): string {
+  if (key === 'channel') return CHANNEL_LABEL[value] ?? value;
+  if (key === 'staffType') return STAFF_TYPE_LABEL[value] ?? value;
+  return value;
+}
 
 // Rows ------------------------------------------------------------------------
 

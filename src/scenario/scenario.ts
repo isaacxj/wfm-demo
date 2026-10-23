@@ -9,7 +9,7 @@
  */
 import type { DemandCell, PlanInput, SiteInput } from '../engine/index.ts';
 
-export type OverrideKind = 'volume' | 'aht' | 'shrinkage' | 'attrition' | 'cap';
+export type OverrideKind = 'volume' | 'aht' | 'shrinkage' | 'attrition' | 'cap' | 'bulk';
 
 /** Which sites an override touches. */
 export type Scope = { type: 'all' } | { type: 'outsourcer'; outsourcer: string } | { type: 'site'; siteId: string };
@@ -56,7 +56,36 @@ export interface CapOverride extends Base {
   value: number | null;
 }
 
-export type Override = VolumeOverride | AhtOverride | ShrinkageOverride | AttritionOverride | CapOverride;
+/** Metrics bulk entry edits, and the row each is set on. */
+export type BulkMetric = 'volume' | 'aht' | 'shrinkage' | 'occupancy' | 'workWeek' | 'attrition' | 'cap';
+
+/** Unit rows change by a percentage over a week range; site rows are set for the whole horizon. */
+export const BULK_LEVEL: Readonly<Record<BulkMetric, 'unit' | 'site' | 'staffType'>> = {
+  volume: 'unit',
+  aht: 'unit',
+  shrinkage: 'site',
+  occupancy: 'site',
+  workWeek: 'staffType',
+  attrition: 'site',
+  cap: 'site',
+};
+
+/**
+ * Many rows of one metric, entered together in bulk entry. Keys are unit ids
+ * (volume, AHT: a percentage change), site ids (shrinkage, occupancy and
+ * attrition as ratios, cap in heads) or "site:staff type" (work week hours).
+ */
+export interface BulkOverride extends Base {
+  kind: 'bulk';
+  scope: { type: 'all' };
+  metric: BulkMetric;
+  values: Readonly<Record<string, number>>;
+  /** Volume and AHT only. */
+  fromWeek: number;
+  toWeek: number;
+}
+
+export type Override = VolumeOverride | AhtOverride | ShrinkageOverride | AttritionOverride | CapOverride | BulkOverride;
 
 export interface Scenario {
   id: string;
@@ -116,9 +145,48 @@ export function applyScenario(base: PlanInput, scenario: Scenario): PlanInput {
       case 'cap':
         sites = sites.map((s) => (siteInScope(s, o.scope) ? { ...s, cap: o.value, codes: { ...s.codes, cap: o.code } } : s));
         break;
+      case 'bulk':
+        sites = applyBulk(sites, demand, base, o);
+        break;
     }
   }
   return { ...base, sites, demand };
+}
+
+function applyBulk(sites: SiteInput[], demand: Record<string, DemandCell[]>, base: PlanInput, o: BulkOverride): SiteInput[] {
+  const entries = Object.entries(o.values);
+  switch (o.metric) {
+    case 'volume':
+    case 'aht':
+      for (const [unitId, pct] of entries) {
+        const cells = demand[unitId];
+        if (!cells) continue;
+        forWeeks(base, o.fromWeek, o.toWeek, (w) => {
+          const c = cells[w]!;
+          if (o.metric === 'volume') c.volume = Math.max(0, Math.round(c.volume * (1 + pct)));
+          else c.aht = c.aht * (1 + pct);
+          c.source = tag(c.source, o.code);
+        });
+      }
+      return sites;
+    case 'workWeek':
+      return sites.map((s) => {
+        const ft = o.values[`${s.id}:full-time`];
+        const pt = o.values[`${s.id}:part-time`];
+        let next = s;
+        if (ft !== undefined) next = { ...next, workWeekHours: ft, codes: { ...next.codes, workWeekHours: o.code } };
+        if (pt !== undefined) next = { ...next, partTimeWorkWeekHours: pt, codes: { ...next.codes, partTimeWorkWeekHours: o.code } };
+        return next;
+      });
+    default: {
+      const field = { shrinkage: 'shrinkage', occupancy: 'occupancyCeiling', attrition: 'monthlyAttrition', cap: 'cap' } as const;
+      const key = field[o.metric];
+      return sites.map((s) => {
+        const v = o.values[s.id];
+        return v === undefined ? s : { ...s, [key]: v, codes: { ...s.codes, [key]: o.code } };
+      });
+    }
+  }
 }
 
 /**
@@ -186,7 +254,26 @@ export const OVERRIDE_LABEL: Readonly<Record<OverrideKind, string>> = {
   shrinkage: 'Shrinkage',
   attrition: 'Attrition',
   cap: 'HC cap',
+  bulk: 'Bulk',
 };
+
+export const BULK_METRIC_LABEL: Readonly<Record<BulkMetric, string>> = {
+  volume: 'Volume',
+  aht: 'AHT',
+  shrinkage: 'Shrinkage',
+  occupancy: 'Occupancy ceiling',
+  workWeek: 'Work week',
+  attrition: 'Attrition',
+  cap: 'HC cap',
+};
+
+/** What an override applies to: its scope, or for bulk entry the rows it changes. */
+export function describeTarget(o: Override, siteName: (id: string) => string): string {
+  if (o.kind !== 'bulk') return describeScope(o.scope, siteName);
+  const n = Object.keys(o.values).length;
+  const noun = { unit: 'planning unit', site: 'site', staffType: 'work week' }[BULK_LEVEL[o.metric]];
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
 
 export function describeScope(scope: Scope, siteName: (id: string) => string): string {
   switch (scope.type) {
@@ -218,11 +305,14 @@ export function describeChange(o: Override): string {
       return `${one.format(o.value * 100)}%`;
     case 'cap':
       return o.value === null ? 'removed' : int.format(o.value);
+    case 'bulk':
+      return `${BULK_METRIC_LABEL[o.metric]}, ${BULK_LEVEL[o.metric] === 'unit' ? 'by row' : 'set by row'}`;
   }
 }
 
 export function describeWhen(o: Override, horizon: number): string {
-  return o.kind === 'volume' || o.kind === 'aht' ? weeksText(o.fromWeek, o.toWeek, horizon) : 'all weeks';
+  const timed = o.kind === 'volume' || o.kind === 'aht' || (o.kind === 'bulk' && BULK_LEVEL[o.metric] === 'unit');
+  return timed ? weeksText((o as { fromWeek: number }).fromWeek, (o as { toWeek: number }).toWeek, horizon) : 'all weeks';
 }
 
 // Stored scenarios ----------------------------------------------------------------
@@ -251,7 +341,7 @@ export function parseStoredScenarios(raw: string): Scenario[] {
   return out;
 }
 
-const KINDS: readonly OverrideKind[] = ['volume', 'aht', 'shrinkage', 'attrition', 'cap'];
+const KINDS: readonly OverrideKind[] = ['volume', 'aht', 'shrinkage', 'attrition', 'cap', 'bulk'];
 
 function migrateOverride(raw: unknown): Override | null {
   const o = raw as Record<string, unknown> | null;

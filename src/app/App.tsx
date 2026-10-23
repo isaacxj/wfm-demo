@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { demoDataset } from '../data/dataset.ts';
 import { buildActuals } from '../data/actuals.ts';
 import { engine, periodLabel, TraceBuilder, type PlanResult } from '../engine/index.ts';
-import { applyScenario, parseStoredScenarios, type Scenario } from '../scenario/scenario.ts';
+import { applyScenario, parseStoredScenarios, type BulkOverride, type Scenario } from '../scenario/scenario.ts';
+import { BulkEntry } from './components/BulkEntry.tsx';
 import { buildCompare, COMPARE_METRICS, DEFAULT_COMPARE_HIDDEN, deltaOf, deltaTrace, horizonSummary } from './compare.ts';
 import { CompareGrid, type CompareRef } from './components/CompareGrid.tsx';
 import { HiringView, type HiringGrouping, type HiringKey, type HiringRef } from './components/HiringView.tsx';
@@ -22,7 +23,7 @@ import { buildHiringPlan, type HiringClass } from './hiring.ts';
 import {
   ALL_FILTERS,
   buildRows,
-  CHANNEL_LABEL,
+  filterValueLabel,
   columnSpec,
   FILTER_DIMENSIONS,
   GROUPINGS,
@@ -47,9 +48,9 @@ const PLAN_TITLE = `${PLAN.name} ${PLAN.version}`;
 const longDate = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 function filtersText(filters: Filters): string {
-  if (!isFiltered(filters)) return 'all business units, languages and channels';
+  if (!isFiltered(filters)) return 'all business units, languages, channels and staff types';
   return FILTER_DIMENSIONS.filter((d) => filters[d.key].length < d.values.length)
-    .map((d) => `${d.label.toLowerCase()} ${filters[d.key].map((v) => (d.key === 'channel' ? (CHANNEL_LABEL[v] ?? v) : v)).join(', ')}`)
+    .map((d) => `${d.label.toLowerCase()} ${filters[d.key].map((v) => filterValueLabel(d.key, v)).join(', ')}`)
     .join('; ');
 }
 
@@ -109,6 +110,11 @@ const HIRING_FOCUS: Readonly<Record<HiringKey, string>> = {
   productive: 'flow.startPeriod',
 };
 
+function newScenario(list: readonly Scenario[]): Scenario {
+  const n = list.reduce((m, s) => Math.max(m, Number(s.code.replace(/\D/g, '')) || 0), 0) + 1;
+  return { id: `s${n}`, code: `SC${n}`, name: `Scenario ${n}`, forkedFrom: `${PLAN.name} ${PLAN.version}`, overrides: [] };
+}
+
 /** Starters moved into a week, and the graduates they deliver, for a class made only of them. */
 function movedClassTrace(c: HiringClass, trainingAttrition: number, code: string) {
   const t = new TraceBuilder();
@@ -144,6 +150,7 @@ export function App() {
   const [runs, setRuns] = useState(1);
   /** Edits made while paused, each add or remove counted. */
   const [edits, setEdits] = useState(0);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [showVariance, setShowVariance] = useState<boolean>(() => readSession(VARIANCE_KEY, ['on', 'off'], 'on') === 'on');
 
   useEffect(() => writeStored(SCENARIOS_KEY, JSON.stringify(scenarios)), [scenarios]);
@@ -203,14 +210,33 @@ export function App() {
 
   const fork = useCallback(() => {
     setScenarios((list) => {
-      const n = list.reduce((m, s) => Math.max(m, Number(s.code.replace(/\D/g, '')) || 0), 0) + 1;
-      const sc: Scenario = { id: `s${n}`, code: `SC${n}`, name: `Scenario ${n}`, forkedFrom: `${PLAN.name} ${PLAN.version}`, overrides: [] };
+      const sc = newScenario(list);
       setActiveId(sc.id);
       return [...list, sc];
     });
     setView('scenarios');
     setSelected(null);
   }, []);
+
+  /** Bulk entry closes: one override per edited metric, so one recalculation. On the locked plan it forks a scenario. */
+  const applyBulk = useCallback(
+    (drafts: Omit<BulkOverride, 'code'>[]) => {
+      setBulkOpen(false);
+      if (drafts.length === 0) return;
+      if (paused) setEdits((n) => n + drafts.length);
+      const withCodes = (s: Scenario): Scenario => {
+        const first = s.overrides.reduce((m, o) => Math.max(m, Number(o.code.split('.OV')[1]) || 0), 0) + 1;
+        return { ...s, overrides: [...s.overrides, ...drafts.map((d, i) => ({ ...d, code: `${s.code}.OV${first + i}` }))] };
+      };
+      setScenarios((list) => {
+        if (activeId && list.some((s) => s.id === activeId)) return list.map((s) => (s.id === activeId ? withCodes(s) : s));
+        const sc = withCodes(newScenario(list));
+        setActiveId(sc.id);
+        return [...list, sc];
+      });
+    },
+    [activeId, paused],
+  );
 
   const updateActive = useCallback(
     (fn: (s: Scenario) => Scenario) => setScenarios((list) => list.map((s) => (s.id === activeId ? fn(s) : s))),
@@ -510,6 +536,7 @@ export function App() {
       paused={paused}
       pending={pending}
       onPause={togglePause}
+      onBulk={() => setBulkOpen(true)}
     >
       {extra}
     </Toolbar>
@@ -681,6 +708,16 @@ export function App() {
       <main className="main" data-stale={pending > 0 ? '' : undefined}>
         {main}
       </main>
+      {bulkOpen && (
+        <BulkEntry
+          input={active ? applyScenario(dataset.plan, active) : dataset.plan}
+          week={week}
+          firstPlannedWeek={actuals.throughWeek + 1}
+          scenarioName={active?.name ?? null}
+          onApply={applyBulk}
+          onCancel={() => setBulkOpen(false)}
+        />
+      )}
       <Inspector open={inspectorOpen} onToggle={toggleInspector} target={target} weekLabel={weekLabel} labelOfWeek={labelOfWeek} />
       <StatusBar
         engineName={engine.name}

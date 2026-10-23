@@ -83,7 +83,7 @@ export function Grid({ rows, grouping, allocated, hidden, selected, onSelect }: 
   const [bandRow, headRow] = table.getHeaderGroups();
 
   if (rows.length === 0) {
-    return <div className="grid-empty">No sites carry the selected business units, languages and channels.</div>;
+    return <div className="grid-empty">No sites carry the selected business units, languages, channels and staff types.</div>;
   }
 
   return (

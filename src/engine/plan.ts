@@ -76,6 +76,8 @@ export interface SiteInput {
   monthlyAttrition: number;
   /** Contracted headcount cap, or null. */
   cap: number | null;
+  /** Hours a part-time agent works a week. Part-time units plan at these hours; full-time at workWeekHours. */
+  partTimeWorkWeekHours?: number;
   openingHeadcount: number;
   /**
    * Hires from classes already in training at plan start, reaching
@@ -86,6 +88,7 @@ export interface SiteInput {
   transfersOut?: readonly number[];
   codes: {
     workWeekHours: string;
+    partTimeWorkWeekHours?: string;
     occupancyCeiling: string;
     shrinkage: string;
     monthlyAttrition: string;
@@ -95,12 +98,16 @@ export interface SiteInput {
   };
 }
 
+export type StaffType = 'full-time' | 'part-time';
+
 export interface PlanningUnit {
   id: string;
   siteId: string;
   lob: string;
   language: string;
   channel: Channel;
+  /** Full-time if absent. Part-time units plan at the site's part-time work week. */
+  staffType?: StaffType;
   /** Chat only. */
   concurrency?: number;
   /** Chat only. Overrides the default efficiency. */
@@ -207,7 +214,7 @@ export function computePlan(input: PlanInput): PlanResult {
           volume: cell.volume,
           aht: cell.aht,
           channel: unit.channel,
-          workWeekHours: site.workWeekHours,
+          workWeekHours: workWeekOf(site, unit).hours,
           occupancyCeiling: site.occupancyCeiling,
           shrinkage: site.shrinkage,
           concurrency: unit.concurrency,
@@ -215,7 +222,7 @@ export function computePlan(input: PlanInput): PlanResult {
           codes: {
             volume: cell.source,
             aht: cell.source,
-            workWeekHours: site.codes.workWeekHours,
+            workWeekHours: workWeekOf(site, unit).code,
             occupancyCeiling: site.codes.occupancyCeiling,
             shrinkage: site.codes.shrinkage,
             concurrency: unit.codes?.concurrency,
@@ -419,7 +426,16 @@ function sumStep(
 const CHANNEL_NAME: Readonly<Record<string, string>> = { voice: 'Voice', chat: 'Chat', deferred: 'Deferred' };
 
 export function unitLabel(u: PlanningUnit): string {
-  return `${u.lob} · ${u.language} · ${CHANNEL_NAME[u.channel] ?? u.channel}`;
+  return `${u.lob} · ${u.language} · ${CHANNEL_NAME[u.channel] ?? u.channel}${u.staffType === 'part-time' ? ' · Part-time' : ''}`;
+}
+
+/** The work week a unit plans at: its staff type's hours at its site. */
+export function workWeekOf(site: SiteInput, unit: PlanningUnit): { hours: number; code: string } {
+  if (unit.staffType === 'part-time') {
+    if (site.partTimeWorkWeekHours === undefined) throw new Error(`${site.id} has part-time unit ${unit.id} but no part-time work week`);
+    return { hours: site.partTimeWorkWeekHours, code: site.codes.partTimeWorkWeekHours ?? site.codes.workWeekHours };
+  }
+  return { hours: site.workWeekHours, code: site.codes.workWeekHours };
 }
 
 function unitParts(units: readonly UnitPeriod[], focus: string): TracePart[] {

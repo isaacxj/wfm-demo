@@ -17,7 +17,7 @@ import { monthOf, varianceOf, varianceTone, type Band, type PeriodModel } from '
 import type { PlanWeek } from '../engine/index.ts';
 import { COLUMNS, columnSpec, type ColumnKey, type GridRow, type NumericKey } from '../app/model.ts';
 import type { AssumptionRecord } from '../data/dataset.ts';
-import { describeChange, describeScope, describeWhen, OVERRIDE_LABEL, type Scenario } from '../scenario/scenario.ts';
+import { describeChange, describeTarget, describeWhen, OVERRIDE_LABEL, type Scenario } from '../scenario/scenario.ts';
 
 type Lib = { Workbook: new () => ExcelJS.Workbook };
 
@@ -93,7 +93,7 @@ interface Row {
 export interface ExportContext {
   planName: string;
   scenarioName: string | null;
-  /** e.g. "Week 2027-W12 (from Mon 22 Mar 2027) · grouped by outsourcer · all business units, languages and channels" */
+  /** e.g. "Week 2027-W12 (from Mon 22 Mar 2027) · grouped by outsourcer · all business units, languages, channels and staff types" */
   context: string;
   exportedOn: string;
 }
@@ -521,7 +521,7 @@ function overridesSheet(
     cells: [
       { v: OVERRIDE_LABEL[o.kind], text: true },
       { v: describeChange(o), text: true },
-      { v: describeScope(o.scope, siteName), text: true },
+      { v: describeTarget(o, siteName), text: true },
       { v: describeWhen(o, 52), text: true },
     ],
   }));

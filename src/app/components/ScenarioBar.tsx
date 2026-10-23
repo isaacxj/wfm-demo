@@ -3,7 +3,7 @@ import type { SiteInput } from '../../engine/index.ts';
 import type { HorizonSummary } from '../compare.ts';
 import {
   describeChange,
-  describeScope,
+  describeTarget,
   describeWhen,
   OVERRIDE_LABEL,
   type Override,
@@ -56,7 +56,7 @@ export function ScenarioBar(props: ScenarioBarProps) {
               <span className="chip-key">{OVERRIDE_LABEL[o.kind]}</span>
               <span className="num">{describeChange(o)}</span>
               <span className="chip-key">
-                {describeScope(o.scope, siteName)} · {describeWhen(o, horizon)}
+                {describeTarget(o, siteName)} · {describeWhen(o, horizon)}
               </span>
               <span className="sc-code">{o.code}</span>
               {props.staged?.added.has(o.code) && <span className="staged-tag">STAGED</span>}
@@ -122,10 +122,12 @@ function SummaryItem({ label, pair, decimals, badIfUp }: { label: string; pair: 
 
 // Override form ---------------------------------------------------------------
 
-const KINDS: readonly OverrideKind[] = ['volume', 'aht', 'shrinkage', 'attrition', 'cap'];
+type FormKind = Exclude<OverrideKind, 'bulk'>;
+
+const KINDS: readonly FormKind[] = ['volume', 'aht', 'shrinkage', 'attrition', 'cap'];
 
 function OverrideForm({ sites, outsourcers, horizon, onAdd, onDone }: ScenarioBarProps & { onDone: () => void }) {
-  const [kind, setKind] = useState<OverrideKind>('volume');
+  const [kind, setKind] = useState<FormKind>('volume');
   const [scopeKey, setScopeKey] = useState('all');
   const [volumeMode, setVolumeMode] = useState<'add' | 'pct'>('add');
   const [value, setValue] = useState('10000');
@@ -137,7 +139,7 @@ function OverrideForm({ sites, outsourcers, horizon, onAdd, onDone }: ScenarioBa
   const scopeOf = (key: string): Scope =>
     key === 'all' ? { type: 'all' } : key.startsWith('v:') ? { type: 'outsourcer', outsourcer: key.slice(2) } : { type: 'site', siteId: key.slice(2) };
 
-  const choose = (k: OverrideKind) => {
+  const choose = (k: FormKind) => {
     setKind(k);
     setError(null);
     const firstSite = sites[0]!;

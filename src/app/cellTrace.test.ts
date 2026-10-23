@@ -63,7 +63,7 @@ describe('every grid number traces to its inputs', () => {
   it('under filters', () => {
     const cases: Filters[] = [
       { ...ALL_FILTERS, channel: ['chat'] },
-      { lob: ['Mobile'], language: ['EN', 'TL'], channel: ['voice', 'deferred'] },
+      { ...ALL_FILTERS, lob: ['Mobile'], language: ['EN', 'TL'], channel: ['voice', 'deferred'] },
     ];
     for (const filters of cases) checkRows(buildRows(plan, { week: 32, filters, grouping: 'outsourcer' }), 'filtered');
   });

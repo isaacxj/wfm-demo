@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.5 — Bulk entry and Staff Type
+
+- **Staff Type** on every planning unit: full-time or part-time. Kingston,
+  Mexico City and Toronto run part-time programmes on their voice and chat
+  queues; a part-time unit plans at its site's part-time work week (24, 24
+  and 20 hours, records `KIN.PTW`, `MEX.PTW`, `YYZ.PTW`). 68 planning units
+  become 88. Staff Type is a filter beside Business Unit, Language and
+  Channel.
+- **Bulk entry**: a view over the grid with a metric tree, filters for
+  outsourcer, site, business unit, language, channel and staff type, and an
+  editable list of the matching rows. Applying turns the edits into one bulk
+  override per metric and recalculates once; on the locked plan it forks a
+  scenario.
+
 ## v2.4 — Edit control and class constraints
 
 - **Pause recalculation**: a toolbar toggle. Edits made while paused are
