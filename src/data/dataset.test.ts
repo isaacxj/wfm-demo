@@ -14,7 +14,7 @@ describe('demo dataset', () => {
   });
 
   it('is pinned, so a screenshot today matches next month', () => {
-    expect(fnv1a(JSON.stringify(ds.plan)).toString(16).padStart(8, '0')).toBe('429f029f');
+    expect(fnv1a(JSON.stringify(ds.plan)).toString(16).padStart(8, '0')).toBe('0525658b');
   });
 
   it('has eight sites across four outsourcers, as tabled in the brief', () => {

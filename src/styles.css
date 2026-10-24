@@ -1681,6 +1681,7 @@ tr.site .id-cell {
 
 .grid.periods {
   --phase-h: 18px;
+  --event-h: 18px;
 }
 
 .grid.periods .phase th {
@@ -1727,7 +1728,53 @@ tr.site .id-cell {
 }
 
 .grid.periods .head th {
+  top: calc(var(--phase-h) + var(--band-h) + var(--event-h));
+}
+
+/* Registered events, annotated over the weeks they act in. */
+.grid.periods .events th {
   top: calc(var(--phase-h) + var(--band-h));
+  height: var(--event-h);
+  padding: 0 4px;
+  background: var(--surface-0);
+  color: var(--ink-400);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  border-bottom: 1px solid var(--line-1);
+  overflow: visible;
+}
+
+.grid.periods .events th.has-event {
+  background: color-mix(in srgb, var(--warn) 9%, var(--surface-0));
+  box-shadow: inset 0 2px 0 var(--warn);
+}
+
+.event-tag {
+  position: sticky;
+  left: 212px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-900);
+  white-space: nowrap;
+}
+
+.event-tag:hover {
+  text-decoration: underline;
+}
+
+.event-tag .event-code {
+  font-family: var(--font-num);
+  font-size: 9.5px;
+  color: var(--warn);
 }
 
 .grid.periods .head th.week.band-actual {
@@ -2063,4 +2110,46 @@ tr.site .id-cell {
 
 .bulk-foot .primary-button:disabled {
   opacity: 0.45;
+}
+
+/* Event register --------------------------------------------------------------- */
+
+.ov-text {
+  height: 22px;
+  border: 1px solid var(--line-2);
+  font: inherit;
+  padding: 0 6px;
+}
+
+.events-note {
+  padding: 6px 14px 0;
+}
+
+.grid.events tr.off td {
+  color: var(--ink-400);
+}
+
+.grid.events tr.off .id-name {
+  text-decoration: line-through;
+}
+
+.event-actions {
+  display: inline-flex;
+  gap: 12px;
+}
+
+.link-button {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.events-foot {
+  margin: 10px 14px;
+  max-width: 860px;
+  color: var(--ink-600);
+  font-size: 11px;
 }

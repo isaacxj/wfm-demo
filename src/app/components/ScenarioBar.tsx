@@ -122,7 +122,7 @@ function SummaryItem({ label, pair, decimals, badIfUp }: { label: string; pair: 
 
 // Override form ---------------------------------------------------------------
 
-type FormKind = Exclude<OverrideKind, 'bulk'>;
+type FormKind = Exclude<OverrideKind, 'bulk' | 'event'>;
 
 const KINDS: readonly FormKind[] = ['volume', 'aht', 'shrinkage', 'attrition', 'cap'];
 

@@ -47,9 +47,25 @@ export interface RequirementInput {
   /** Chat only. Overrides the default efficiency for the concurrency. */
   chatEfficiency?: number;
   codes?: RequirementCodes;
+  /** Registered events in effect: each moves the forecast volume or AHT by a percentage. */
+  events?: readonly RequirementEvent[];
+}
+
+/** One event's effect on one unit-week. */
+export interface RequirementEvent {
+  code: string;
+  name: string;
+  /** Change to volume, e.g. 0.16 for +16%. */
+  volumePct?: number;
+  /** Change to AHT. */
+  ahtPct?: number;
 }
 
 export interface RequirementResult {
+  /** Volume after any events. */
+  volume: number;
+  /** AHT after any events, seconds. */
+  aht: number;
   effectiveAht: number;
   workloadHours: number;
   /** Occupancy actually applied: the ceiling, or 1.0 for deferred work. */
@@ -87,8 +103,9 @@ export function periodRequirement(input: RequirementInput): RequirementResult {
   assertFraction('shrinkage', input.shrinkage, true);
 
   const t = new TraceBuilder();
-  const volume = t.input('volume', 'Volume', input.volume, 'contacts', codes.volume);
-  const aht = t.input('aht', 'AHT', input.aht, 'seconds', codes.aht);
+  const events = input.events ?? [];
+  const volume = adjusted(t, 'volume', 'Volume', input.volume, 'contacts', codes.volume, events, 'volumePct');
+  const aht = adjusted(t, 'aht', 'AHT', input.aht, 'seconds', codes.aht, events, 'ahtPct');
 
   let handle: Ref = aht;
   if (channel === 'chat') {
@@ -156,6 +173,8 @@ export function periodRequirement(input: RequirementInput): RequirementResult {
   t.note('required', REQUIRED_FTE_NOTE);
 
   return {
+    volume: volume.value,
+    aht: aht.value,
     effectiveAht: handle.value,
     workloadHours: workload.value,
     occupancyApplied: occ.value,
@@ -163,6 +182,42 @@ export function periodRequirement(input: RequirementInput): RequirementResult {
     requiredFte: required.value,
     trace: t.steps,
   };
+}
+
+/**
+ * A forecast input moved by the events in effect. Without events it is the
+ * input itself. With them, the forecast and each event's effect are inputs,
+ * and the value is forecast × (1 + effect) for each event, volume rounded to
+ * whole contacts.
+ */
+function adjusted(
+  t: TraceBuilder,
+  key: 'volume' | 'aht',
+  label: string,
+  value: number,
+  unit: 'contacts' | 'seconds',
+  code: string | undefined,
+  events: readonly RequirementEvent[],
+  field: 'volumePct' | 'ahtPct',
+): Ref {
+  const applied = events.filter((e) => (e[field] ?? 0) !== 0);
+  if (applied.length === 0) return t.input(key, label, value, unit, code);
+  const forecast = t.input(`${key}Forecast`, `${label}, forecast`, value, unit, code);
+  const effects = applied.map((e) =>
+    t.input(`event.${e.code}.${key}`, `${e.name} (${e.code})`, e[field]!, 'ratio', `${e.code}.${key === 'volume' ? 'VOL' : 'AHT'}`),
+  );
+  const factor = applied.reduce((f, e) => f * (1 + e[field]!), 1);
+  const exact = forecast.value * factor;
+  const product = `${group(forecast.expr)}${effects.map((r) => `*(1+${r.expr})`).join('')}`;
+  return t.calc(
+    key,
+    `${label} with events`,
+    key === 'volume' ? Math.round(exact) : exact,
+    unit,
+    key === 'volume' ? 'round(forecast × (1 + event effect) for each event)' : 'forecast × (1 + event effect) for each event',
+    key === 'volume' ? `ROUND(${product},0)` : product,
+    [forecast, ...effects],
+  );
 }
 
 export function assertPositive(name: string, v: number): void {

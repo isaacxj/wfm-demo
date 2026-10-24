@@ -14,10 +14,11 @@ import { deltaOf, type CompareModel, type HorizonSummary } from '../app/compare.
 import { displayRound } from '../app/format.ts';
 import type { HiringPlan } from '../app/hiring.ts';
 import { monthOf, varianceOf, varianceTone, type Band, type PeriodModel } from '../app/periods.ts';
-import type { PlanWeek } from '../engine/index.ts';
+import type { PlanEvent, PlanWeek } from '../engine/index.ts';
+import { EVENT_TYPE_LABEL } from '../app/events.ts';
 import { COLUMNS, columnSpec, type ColumnKey, type GridRow, type NumericKey } from '../app/model.ts';
 import type { AssumptionRecord } from '../data/dataset.ts';
-import { describeChange, describeTarget, describeWhen, OVERRIDE_LABEL, type Scenario } from '../scenario/scenario.ts';
+import { describeChange, describeEventScope, describeTarget, describeWhen, OVERRIDE_LABEL, type Scenario } from '../scenario/scenario.ts';
 
 type Lib = { Workbook: new () => ExcelJS.Workbook };
 
@@ -307,7 +308,13 @@ export function planWorkbook(
   hidden: ReadonlySet<ColumnKey>,
   ctx: ExportContext,
   sheetName: string,
-  extras: { hiring?: HiringPlan; assumptions?: readonly AssumptionRecord[]; scenario?: Scenario | null; siteName?: (id: string) => string },
+  extras: {
+    hiring?: HiringPlan;
+    assumptions?: readonly AssumptionRecord[];
+    scenario?: Scenario | null;
+    siteName?: (id: string) => string;
+    events?: readonly PlanEvent[];
+  },
 ): ExcelJS.Workbook {
   const wb = newWorkbook(lib, ctx);
   const visible = COLUMNS.filter((c) => c.key === 'site' || !hidden.has(c.key));
@@ -330,6 +337,7 @@ export function planWorkbook(
   writeRows(ws, first, cols, out, rows.some((r) => r.kind === 'group'));
   if (extras.hiring) hiringSheet(wb, extras.hiring, ctx);
   if (extras.scenario) overridesSheet(wb, extras.scenario, null, ctx, extras.siteName ?? ((id) => id));
+  if (extras.events?.length) eventsSheet(wb, extras.events, ctx, extras.siteName ?? ((id) => id));
   if (extras.assumptions) assumptionsSheet(wb, extras.assumptions, ctx);
   return wb;
 }
@@ -347,14 +355,20 @@ export function periodsWorkbook(
   metric: NumericKey,
   ctx: ExportContext,
   sheetName: string,
-  extras: { hiring?: HiringPlan; assumptions?: readonly AssumptionRecord[]; scenario?: Scenario | null; siteName?: (id: string) => string },
+  extras: {
+    hiring?: HiringPlan;
+    assumptions?: readonly AssumptionRecord[];
+    scenario?: Scenario | null;
+    siteName?: (id: string) => string;
+    events?: readonly PlanEvent[];
+  },
 ): ExcelJS.Workbook {
   const wb = newWorkbook(lib, ctx);
   const spec = columnSpec(metric);
   const header = spec.header;
   const cols: Col[] = [
     { header: `Site · ${header}`, band: 'Site', width: 34 },
-    ...weeks.map((w) => ({ header: w.label.slice(5), band: monthOf(w).label, width: metric === 'volume' ? 11 : 9 })),
+    ...weeks.map((w) => ({ header: w.label.slice(5), band: monthOf(w).label, width: metric === 'aht' || metric === 'overUnder' || metric === 'hireNeed' ? 9 : 11 })),
   ];
   const first = 6;
   const ranges = aggregateRanges(model.rows, first);
@@ -414,6 +428,7 @@ export function periodsWorkbook(
 
   if (extras.hiring) hiringSheet(wb, extras.hiring, ctx);
   if (extras.scenario) overridesSheet(wb, extras.scenario, null, ctx, extras.siteName ?? ((id) => id));
+  if (extras.events?.length) eventsSheet(wb, extras.events, ctx, extras.siteName ?? ((id) => id));
   if (extras.assumptions) assumptionsSheet(wb, extras.assumptions, ctx);
   return wb;
 }
@@ -446,7 +461,13 @@ export function compareWorkbook(
   metrics: readonly NumericKey[],
   ctx: ExportContext,
   sheetName: string,
-  extras: { scenario: Scenario; summary: HorizonSummary; assumptions?: readonly AssumptionRecord[]; siteName: (id: string) => string },
+  extras: {
+    scenario: Scenario;
+    summary: HorizonSummary;
+    assumptions?: readonly AssumptionRecord[];
+    siteName: (id: string) => string;
+    events?: readonly PlanEvent[];
+  },
 ): ExcelJS.Workbook {
   const wb = newWorkbook(lib, ctx);
   const cols: Col[] = [{ header: 'Site', band: 'Site', width: 34 }];
@@ -496,6 +517,7 @@ export function compareWorkbook(
   });
   writeRows(ws, first, cols, out, model.rows.some((r) => r.kind === 'group'));
   overridesSheet(wb, extras.scenario, extras.summary, ctx, extras.siteName);
+  if (extras.events?.length) eventsSheet(wb, extras.events, ctx, extras.siteName ?? ((id) => id));
   if (extras.assumptions) assumptionsSheet(wb, extras.assumptions, ctx);
   return wb;
 }
@@ -665,6 +687,36 @@ function hiringSheet(wb: ExcelJS.Workbook, hp: HiringPlan, ctx: ExportContext): 
     ],
   }));
   writeRows(ws, at + 2, ecols, erows, false);
+}
+
+// Events ----------------------------------------------------------------------
+
+function eventsSheet(wb: ExcelJS.Workbook, events: readonly PlanEvent[], ctx: ExportContext, siteName: (id: string) => string): void {
+  const cols: Col[] = [
+    { header: 'Code', band: 'Event', width: 12 },
+    { header: 'Name', band: 'Event', width: 32, text: true },
+    { header: 'Type', band: 'Event', width: 14, text: true },
+    { header: 'Applies to', band: 'Scope', width: 24, text: true },
+    { header: 'Weeks', band: 'Scope', width: 12, text: true },
+    { header: 'Volume', band: 'Effect', width: 10 },
+    { header: 'AHT', band: 'Effect', width: 10 },
+  ];
+  const ws = addSheet(wb, 'Events', `${ctx.planName} · ${ctx.scenarioName ?? 'Baseline'} · event register`, 'Known drivers the forecast does not hold; each moves volume or AHT in its weeks', cols);
+  const pct = (v: number | undefined): CellSpec => (v ? { v, numFmt: '+0.0%;-0.0%;0.0%' } : { v: '–', tone: 'muted' });
+  const w = (n: number) => `W${String(n).padStart(2, '0')}`;
+  const rows: Row[] = events.map((e) => ({
+    kind: 'site',
+    label: e.code,
+    cells: [
+      { v: e.name, text: true },
+      { v: EVENT_TYPE_LABEL[e.type], text: true },
+      { v: describeEventScope(e.scope, siteName), text: true },
+      { v: `${w(e.fromWeek)}–${w(e.toWeek)}`, text: true },
+      pct(e.volumePct),
+      pct(e.ahtPct),
+    ],
+  }));
+  writeRows(ws, 6, cols, rows, false);
 }
 
 // Assumptions -----------------------------------------------------------------

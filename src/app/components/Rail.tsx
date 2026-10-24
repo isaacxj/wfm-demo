@@ -5,6 +5,7 @@ const PLANNING = [
   { id: 'plans', label: 'Plans', icon: 'plans', enabled: true },
   { id: 'scenarios', label: 'Scenarios', icon: 'scenarios', enabled: true },
   { id: 'hiring', label: 'Hiring plan', icon: 'hiring', enabled: true },
+  { id: 'events', label: 'Events', icon: 'events', enabled: true },
 ];
 
 const SETUP = [
@@ -14,7 +15,7 @@ const SETUP = [
   { id: 'audit', label: 'Audit', icon: 'audit', enabled: false },
 ];
 
-export type View = 'plans' | 'scenarios' | 'hiring';
+export type View = 'plans' | 'scenarios' | 'hiring' | 'events';
 
 interface RailProps {
   view: View;

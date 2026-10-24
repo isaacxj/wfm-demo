@@ -7,9 +7,9 @@
  * override's code in its assumption record, so the inspector shows which
  * override changed it.
  */
-import type { DemandCell, PlanInput, SiteInput } from '../engine/index.ts';
+import type { DemandCell, PlanEvent, PlanInput, SiteInput } from '../engine/index.ts';
 
-export type OverrideKind = 'volume' | 'aht' | 'shrinkage' | 'attrition' | 'cap' | 'bulk';
+export type OverrideKind = 'volume' | 'aht' | 'shrinkage' | 'attrition' | 'cap' | 'bulk' | 'event';
 
 /** Which sites an override touches. */
 export type Scope = { type: 'all' } | { type: 'outsourcer'; outsourcer: string } | { type: 'site'; siteId: string };
@@ -85,7 +85,17 @@ export interface BulkOverride extends Base {
   toWeek: number;
 }
 
-export type Override = VolumeOverride | AhtOverride | ShrinkageOverride | AttritionOverride | CapOverride | BulkOverride;
+/** Registers an event in the scenario, or switches one of the plan's off. */
+export interface EventOverride extends Base {
+  kind: 'event';
+  scope: { type: 'all' };
+  /** An event added by the scenario. Its code is the override's code. */
+  add?: Omit<PlanEvent, 'code'>;
+  /** Code of a plan event the scenario switches off. */
+  remove?: string;
+}
+
+export type Override = VolumeOverride | AhtOverride | ShrinkageOverride | AttritionOverride | CapOverride | BulkOverride | EventOverride;
 
 export interface Scenario {
   id: string;
@@ -110,6 +120,7 @@ export function siteInScope(site: Pick<SiteInput, 'id' | 'outsourcer'>, scope: S
 
 export function applyScenario(base: PlanInput, scenario: Scenario): PlanInput {
   let sites: SiteInput[] = base.sites.map((s) => ({ ...s, codes: { ...s.codes } }));
+  let events: PlanEvent[] = [...(base.events ?? [])];
   const demand: Record<string, DemandCell[]> = Object.fromEntries(
     Object.entries(base.demand).map(([id, cells]) => [id, cells.map((c) => ({ ...c }))]),
   );
@@ -148,9 +159,13 @@ export function applyScenario(base: PlanInput, scenario: Scenario): PlanInput {
       case 'bulk':
         sites = applyBulk(sites, demand, base, o);
         break;
+      case 'event':
+        if (o.remove) events = events.filter((e) => e.code !== o.remove);
+        if (o.add) events = [...events, { ...o.add, code: o.code }];
+        break;
     }
   }
-  return { ...base, sites, demand };
+  return { ...base, sites, demand, events };
 }
 
 function applyBulk(sites: SiteInput[], demand: Record<string, DemandCell[]>, base: PlanInput, o: BulkOverride): SiteInput[] {
@@ -255,6 +270,7 @@ export const OVERRIDE_LABEL: Readonly<Record<OverrideKind, string>> = {
   attrition: 'Attrition',
   cap: 'HC cap',
   bulk: 'Bulk',
+  event: 'Event',
 };
 
 export const BULK_METRIC_LABEL: Readonly<Record<BulkMetric, string>> = {
@@ -269,6 +285,7 @@ export const BULK_METRIC_LABEL: Readonly<Record<BulkMetric, string>> = {
 
 /** What an override applies to: its scope, or for bulk entry the rows it changes. */
 export function describeTarget(o: Override, siteName: (id: string) => string): string {
+  if (o.kind === 'event') return o.add ? describeEventScope(o.add.scope, siteName) : 'Switched off';
   if (o.kind !== 'bulk') return describeScope(o.scope, siteName);
   const n = Object.keys(o.values).length;
   const noun = { unit: 'planning unit', site: 'site', staffType: 'work week' }[BULK_LEVEL[o.metric]];
@@ -307,10 +324,32 @@ export function describeChange(o: Override): string {
       return o.value === null ? 'removed' : int.format(o.value);
     case 'bulk':
       return `${BULK_METRIC_LABEL[o.metric]}, ${BULK_LEVEL[o.metric] === 'unit' ? 'by row' : 'set by row'}`;
+    case 'event':
+      return o.add ? `${o.add.name} ${describeEffect(o.add)}` : `${o.remove} off`;
+  }
+}
+
+/** "volume +16.0%, AHT +4.0%" */
+export function describeEffect(e: Pick<PlanEvent, 'volumePct' | 'ahtPct'>): string {
+  const parts = [e.volumePct ? `volume ${signedPct(e.volumePct)}` : '', e.ahtPct ? `AHT ${signedPct(e.ahtPct)}` : ''].filter(Boolean);
+  return parts.length ? parts.join(', ') : 'no effect';
+}
+
+export function describeEventScope(scope: PlanEvent['scope'], siteName: (id: string) => string): string {
+  switch (scope.type) {
+    case 'all':
+      return 'All sites';
+    case 'outsourcer':
+      return scope.outsourcer;
+    case 'site':
+      return siteName(scope.siteId);
+    case 'businessUnit':
+      return `${scope.lob} business unit`;
   }
 }
 
 export function describeWhen(o: Override, horizon: number): string {
+  if (o.kind === 'event') return o.add ? weeksText(o.add.fromWeek, o.add.toWeek, horizon) : 'all weeks';
   const timed = o.kind === 'volume' || o.kind === 'aht' || (o.kind === 'bulk' && BULK_LEVEL[o.metric] === 'unit');
   return timed ? weeksText((o as { fromWeek: number }).fromWeek, (o as { toWeek: number }).toWeek, horizon) : 'all weeks';
 }
@@ -341,7 +380,7 @@ export function parseStoredScenarios(raw: string): Scenario[] {
   return out;
 }
 
-const KINDS: readonly OverrideKind[] = ['volume', 'aht', 'shrinkage', 'attrition', 'cap', 'bulk'];
+const KINDS: readonly OverrideKind[] = ['volume', 'aht', 'shrinkage', 'attrition', 'cap', 'bulk', 'event'];
 
 function migrateOverride(raw: unknown): Override | null {
   const o = raw as Record<string, unknown> | null;

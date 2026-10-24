@@ -224,9 +224,10 @@ function stepValue(p: SitePeriod, key: string): number | undefined {
 /** Why the class is needed: demand rising faster than attrition, or attrition backfill. */
 function driverOf(p: SitePeriod, prior: SitePeriod | undefined): string {
   const growth = prior ? p.requiredFte - prior.requiredFte : 0;
-  if (p.flow.capShortfall > 0.05) return 'Backfill to cap';
-  if (growth > p.flow.attrition) return `Demand +${one.format(growth)} FTE`;
-  return `Attrition backfill`;
+  const events = p.events.length ? ` · ${p.events.join(', ')}` : '';
+  if (p.flow.capShortfall > 0.05) return `Backfill to cap${events}`;
+  if (growth > p.flow.attrition) return `Demand +${one.format(growth)} FTE${events}`;
+  return `Attrition backfill${events}`;
 }
 
 /** Totals over a set of classes. */

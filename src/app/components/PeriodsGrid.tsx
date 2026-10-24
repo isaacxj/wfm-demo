@@ -1,6 +1,6 @@
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { useEffect, useMemo, useRef } from 'react';
-import type { PlanWeek } from '../../engine/index.ts';
+import type { PlanEvent, PlanWeek } from '../../engine/index.ts';
 import { formatDelta, formatValue, shortDate } from '../format.ts';
 import { columnSpec, GROUPINGS, type Grouping, type NumericKey } from '../model.ts';
 import { monthOf, startsMonth, varianceOf, varianceTone, type Band, type PeriodModel, type PeriodRow } from '../periods.ts';
@@ -24,12 +24,29 @@ interface PeriodsGridProps {
   /** Names for the phase header. */
   planName: string;
   scenarioName: string | null;
+  /** Registered events in effect, annotated over their weeks. */
+  events: readonly PlanEvent[];
+  onEvent: (code: string) => void;
 }
 
 /** Row id of the variance row under a row. */
 export const varianceRowId = (rowId: string) => `var:${rowId}`;
 
 const oneFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+/** Consecutive weeks with the same events in effect, for the annotation row. Index is 0-based. */
+function eventRuns(events: readonly PlanEvent[], weeks: readonly PlanWeek[]): { from: number; span: number; events: PlanEvent[] }[] {
+  const out: { from: number; span: number; events: PlanEvent[]; key: string }[] = [];
+  weeks.forEach((w, i) => {
+    const on = events.filter((e) => w.index >= e.fromWeek && w.index <= e.toWeek);
+    const key = on.map((e) => e.code).join(',');
+    const last = out.at(-1);
+    // Runs without events break at month starts, so the month rule carries through the row.
+    if (last && last.key === key && (key !== '' || !startsMonth(weeks, i))) last.span++;
+    else out.push({ from: i, span: 1, events: on, key });
+  });
+  return out;
+}
 
 /** Consecutive weeks in the same band, for the phase header. */
 function phases(model: PeriodModel, weeks: readonly PlanWeek[]): { band: Band; from: PlanWeek; to: PlanWeek; span: number }[] {
@@ -47,10 +64,11 @@ function phases(model: PeriodModel, weeks: readonly PlanWeek[]): { band: Band; f
 const helper = createColumnHelper<PeriodRow>();
 
 export function PeriodsGrid(props: PeriodsGridProps) {
-  const { model, weeks, metric, grouping, density, focusWeek, selected, onSelect, showVariance, planName, scenarioName } = props;
+  const { model, weeks, metric, grouping, density, focusWeek, selected, onSelect, showVariance, planName, scenarioName, events, onEvent } = props;
   const spec = columnSpec(metric);
   const bandLabel = GROUPINGS.find((g) => g.id === grouping)?.band ?? 'Site';
-  const weekWidth = (density === 'compact' ? 52 : 62) + (metric === 'volume' ? 8 : 0);
+  // Totals of volume and the FTE metrics run to five digits and a decimal.
+  const weekWidth = (density === 'compact' ? 52 : 62) + (metric === 'volume' || metric === 'productive' || metric === 'required' || metric === 'planned' ? 10 : 0);
 
   const columns = useMemo<ColumnDef<PeriodRow, unknown>[]>(() => {
     const months: { key: string; label: string; weeks: { week: PlanWeek; index: number }[] }[] = [];
@@ -134,6 +152,24 @@ export function PeriodsGrid(props: PeriodsGridProps) {
           {bandRow?.headers.map((h) => (
             <th key={h.id} colSpan={h.colSpan} className={h.column.id === 'identity' ? 'id' : undefined}>
               {flexRender(h.column.columnDef.header, h.getContext())}
+            </th>
+          ))}
+        </tr>
+        <tr className="events">
+          <th className="id">Events</th>
+          {eventRuns(events, weeks).map((run) => (
+            <th
+              key={run.from}
+              colSpan={run.span}
+              className={[run.events.length ? 'has-event' : '', startsMonth(weeks, run.from) ? 'month-start' : '', isNow(run.from) ? 'now' : '']
+                .filter(Boolean)
+                .join(' ')}
+            >
+              {run.events.map((e) => (
+                <button key={e.code} className="event-tag" onClick={() => onEvent(e.code)} title={`${e.code} ${e.name}: show in the inspector`}>
+                  <span className="event-code">{e.code}</span> {e.name}
+                </button>
+              ))}
             </th>
           ))}
         </tr>

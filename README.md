@@ -35,12 +35,12 @@ Statixx Solutions. All data in this repository is invented.
 | v2.3 | Actuals, plan and scenario bands | Done |
 | v2.4 | Pause recalculation; class constraints | Done |
 | v2.5 | Bulk entry; Staff Type | Done |
-| v2.6 | Driver and event register | Not started |
+| v2.6 | Driver and event register | Done |
 | v2.7 | Budget variance; report view | Not started |
 
 ## Demo walkthrough
 
-Eight steps: the demo script, plus actuals. Everything runs in the browser on an
+Nine steps: the demo script, plus actuals and events. Everything runs in the browser on an
 invented 2027 dataset: 8 sites, 4 outsourcers, 88 planning units, 52 weeks.
 
 ### 1. Open the locked production plan and read the grid
@@ -75,7 +75,7 @@ records (`ACT27.MEX.HC.W09` for headcount).
 Open **Scenarios** → **Fork scenario from v3** → **+ Add override** → **AHT**,
 +5, all sites, all weeks → **Apply**. Every metric now shows baseline,
 scenario and change side by side. In 2027-W12, Required FTE rises by
-**+243.2**. Over the year, hires to start rise from 3,442 to 3,801. The baseline
+**+243.2**. Over the year, hires to start rise from 3,450 to 3,809. The baseline
 stays locked; the scenario is a separate, fully recalculated plan.
 
 ![AHT +5% compared with the baseline](docs/screenshots/03-scenario-aht.png)
@@ -118,8 +118,8 @@ the status bar's run counter goes up by one.
 
 **Hiring plan** in the rail. This is the recruitment instruction: for each start
 week, which site hires how many, training and nesting weeks, the week the class
-is productive, and why. 184 classes and 3,442 starters across the year; the
-busiest start week is 2027-W25, 427 starters ahead of the marketing spike.
+is productive, and why. 192 classes and 3,450 starters across the year; the
+busiest start week is 2027-W25, 437 starters ahead of the summer campaign.
 Classes hold 8 to 30, a site starts at most two a week, and no class starts in
 a blocked week (W06 Lunar New Year, W12 Holy Week, W51 Christmas, W52 New
 Year). Where the ideal week is blocked or full, the class starts earlier,
@@ -138,11 +138,32 @@ Select any cell. The inspector shows the chain behind it: every intermediate
 value, its formula, and the assumption code of each input. Totals open into
 their planning units, and opening headcount into the prior week.
 **Copy as Excel formula** copies a formula that reproduces the value. Shown:
-Manila-1's Over/Under in 2027-W32: −132.4 FTE, the demand above its cap.
+Manila-1's Over/Under in 2027-W32: −87.1 FTE, the demand above its cap. The
+inspector names the event behind it: the summer campaign contributes −87.4.
 
 ![Inspector on Manila-1's Over/Under](docs/screenshots/07-inspector.png)
 
-### 8. Export to Excel
+### 8. Read the events behind the plan
+
+**Events** in the rail is the register of known drivers the forecast does not
+hold: the summer offer campaign (W31–W34, volume +16%, AHT +4%, every site),
+compliance disclosure training (W14–W19, AHT +3%, Mobile) and the billing
+platform migration (W38–W40, volume +8%, AHT +6%, Internet). Each row says what
+the event does to the plan: the most it adds to total Required FTE in one week,
+and the starters it causes. The campaign adds 923.7 FTE in W34 and 89 starters.
+
+![Event register](docs/screenshots/10-event-register.png)
+
+**Show in plan** opens the Periods grid on that week, with the grand total's
+Required FTE selected, and the inspector names the event as a contributor:
++923.7 FTE, 4,475.3 without it. Events are annotated above their weeks in the
+Periods grid; clicking one does the same for the selected row. **Switch off**
+or **+ Register event** forks a scenario, so the effect of an event is one
+comparison away.
+
+![The campaign named in the inspector](docs/screenshots/11-event-inspector.png)
+
+### 9. Export to Excel
 
 **Export** (top right) saves the current view as .xlsx, keeping its structure:
 merged column-group bands, collapsible outsourcer groups, live SUBTOTAL formulas
@@ -204,6 +225,7 @@ A textbook capacity model behind the `CapacityEngine` interface in
 - Minimum class size: a recommended class has at least 8 starters, rounded up from the need where room under any cap allows; the extra graduates carry forward as a small surplus
 - Class constraints: at most 30 a class and 2 classes a site a week; no starts in blocked weeks. Starters the ideal week cannot take start in the latest earlier week with room, sized for attrition between landing and the week they are for. Their graduates land early and are held for that week: in supply, but not counted against the deficits of the weeks between, so the early class adds cover rather than replacing those weeks' own classes. The site then rolls forward again from the week they land. Starters no week can take stay as a shortfall
 - Committed pipeline: classes already in training at plan start land in weeks 1 to 6; inside that lead time no new class can land, and any deficit remains as a lead-time shortfall
+- Events: a registered event moves the forecast volume or AHT of every planning unit in its scope, in its weeks, by a percentage: volume = round(forecast × (1 + effect)) for each event in effect. Each effect is an input with its own assumption record (EV01.VOL, EV01.AHT), so every unit chain shows the forecast, the events and the result
 - Filters: demand sums over the matching planning units; site supply is allocated to the slice by its share of required FTE
 - Actuals: required FTE from observed volume and AHT by the same requirement arithmetic; Over/Under = observed headcount − that requirement; a filtered slice gets observed headcount by its share of required FTE
 
@@ -300,6 +322,29 @@ reads "Recalculation paused · N pending changes", counting each edit. **Resume*
 recalculates once with all of them. The status bar's run counter numbers each
 calculation since the page opened, so a resume after four edits shows one
 more run, not four.
+
+## Event register
+
+**Events** in the rail lists the plan's registered events: code, name, type
+(campaign, training, system change, other), what it applies to (all sites, an
+outsourcer, a site or a business unit), its weeks and its effect on volume and
+AHT. The forecast holds none of them; the engine applies them, so the marketing
+spike in W31 to W34 is the summer campaign, EV01, and not a bump in the
+forecast. Each event's effect on the plan is measured by recomputing the plan
+without it: the most it adds to total Required FTE in one of its weeks, and the
+starters it causes across the year.
+
+In the Periods grid a row above the week headers annotates each event over its
+weeks. Selecting any cell in an event's weeks names the event in the inspector
+with what it contributes to that number, and the value without it. Clicking an
+annotation, or **Show in plan** in the register, opens that view. A hiring class
+needed in an event week names the event in its driver.
+
+A scenario can switch a plan event off or register a new one (name, type,
+scope, weeks, volume and AHT effect); on the locked plan either forks a
+scenario. A registered event's code is its override's, for example
+`SC1.OV2`, and its effects carry that code in the inspector. Exports carry the
+register as an Events sheet.
 
 ## Bulk entry
 

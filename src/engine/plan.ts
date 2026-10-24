@@ -123,6 +123,47 @@ export interface DemandCell {
   source: string;
 }
 
+export type EventType = 'campaign' | 'training' | 'system' | 'other';
+
+/** Which planning units an event touches. */
+export type EventScope =
+  | { type: 'all' }
+  | { type: 'outsourcer'; outsourcer: string }
+  | { type: 'site'; siteId: string }
+  | { type: 'businessUnit'; lob: string };
+
+/**
+ * A known driver of demand the forecast does not hold: a campaign, a training
+ * programme, a system change. In its weeks it moves the volume or AHT of every
+ * unit in scope by a percentage.
+ */
+export interface PlanEvent {
+  /** e.g. "EV01". Its effects are assumption records EV01.VOL and EV01.AHT. */
+  code: string;
+  name: string;
+  type: EventType;
+  scope: EventScope;
+  fromWeek: number;
+  toWeek: number;
+  /** e.g. 0.16 for +16%. */
+  volumePct?: number;
+  ahtPct?: number;
+}
+
+export function eventApplies(e: PlanEvent, site: Pick<SiteInput, 'id' | 'outsourcer'>, unit: Pick<PlanningUnit, 'lob'>, week: number): boolean {
+  if (week < e.fromWeek || week > e.toWeek) return false;
+  switch (e.scope.type) {
+    case 'all':
+      return true;
+    case 'outsourcer':
+      return site.outsourcer === e.scope.outsourcer;
+    case 'site':
+      return site.id === e.scope.siteId;
+    case 'businessUnit':
+      return unit.lob === e.scope.lob;
+  }
+}
+
 export interface PlanInput {
   /** ISO year the horizon starts in; week index 1 is its ISO week 1. */
   isoYear: number;
@@ -132,6 +173,8 @@ export interface PlanInput {
   units: readonly PlanningUnit[];
   /** Demand per unit id, one cell per horizon week. */
   demand: Readonly<Record<string, readonly DemandCell[]>>;
+  /** Registered events. They move the forecast in their weeks. */
+  events?: readonly PlanEvent[];
 }
 
 export interface UnitPeriod {
@@ -159,6 +202,8 @@ export interface SitePeriod {
   /** ISO week the recommended class starts, or null when none is needed. */
   classStartLabel: string | null;
   units: UnitPeriod[];
+  /** Codes of the registered events that move this site-week's demand. */
+  events: string[];
   /** Demand roll-up, then supply, then hiring. */
   trace: TraceStep[];
 }
@@ -228,9 +273,13 @@ export function computePlan(input: PlanInput): PlanResult {
             concurrency: unit.codes?.concurrency,
             chatEfficiency: unit.codes?.chatEfficiency,
           },
+          events: (input.events ?? []).filter((e) => eventApplies(e, site, unit, week.index)),
         });
-        return { unit, week: week.index, volume: cell.volume, aht: cell.aht, requirement };
+        return { unit, week: week.index, volume: requirement.volume, aht: requirement.aht, requirement };
       }),
+    );
+    const eventsByWeek = weeks.map((week) =>
+      (input.events ?? []).filter((e) => units.some((u) => eventApplies(e, site, u, week.index))).map((e) => e.code),
     );
     const weeklyRetention = 1 - periodAttritionRate(site.monthlyAttrition, constants.periodsPerMonth).rate;
     const moved: MovedClass[] = [];
@@ -325,6 +374,7 @@ export function computePlan(input: PlanInput): PlanResult {
           flow,
           classStartLabel: flow.hiresToStart > 0 ? periodLabel(input.isoYear, flow.startPeriod) : null,
           units: unitPeriods,
+          events: eventsByWeek[w]!,
           trace: t.steps,
         });
 

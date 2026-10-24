@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.6 — Driver and event register
+
+- Registered events: name, type, scope (all sites, outsourcer, site or
+  business unit), week range, and a percentage effect on volume and AHT. The
+  engine applies them; each effect is an input with its own assumption record.
+- Three seeded: EV01 summer offer campaign (W31–W34), EV02 compliance
+  disclosure training (W14–W19), EV03 billing platform migration (W38–W40).
+  The W31–W34 marketing spike moved out of the forecast seasonality and into
+  EV01, so the plan says what causes it.
+- An Events view in the rail: the register, each event's peak effect on
+  Required FTE and the starters it causes, Show in plan, Switch off, and
+  Register event. Changes fork a scenario from the locked plan.
+- The Periods grid annotates events over their weeks. The inspector names
+  every event in effect for the selected cell, with what it contributes to the
+  number and the value without it.
+- Hiring class drivers name the events in their week; exports include an
+  Events sheet.
+
 ## v2.5 — Bulk entry and Staff Type
 
 - **Staff Type** on every planning unit: full-time or part-time. Kingston,

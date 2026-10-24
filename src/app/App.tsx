@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { demoDataset } from '../data/dataset.ts';
 import { buildActuals } from '../data/actuals.ts';
 import { engine, periodLabel, TraceBuilder, type PlanResult } from '../engine/index.ts';
-import { applyScenario, parseStoredScenarios, type BulkOverride, type Scenario } from '../scenario/scenario.ts';
+import { applyScenario, describeEffect, describeEventScope, parseStoredScenarios, type BulkOverride, type EventOverride, type Scenario } from '../scenario/scenario.ts';
 import { BulkEntry } from './components/BulkEntry.tsx';
 import { buildCompare, COMPARE_METRICS, DEFAULT_COMPARE_HIDDEN, deltaOf, deltaTrace, horizonSummary } from './compare.ts';
 import { CompareGrid, type CompareRef } from './components/CompareGrid.tsx';
@@ -20,6 +20,8 @@ import { compareWorkbook, fileName, hiringWorkbook, periodsWorkbook, planWorkboo
 import { downloadWorkbook } from '../export/download.ts';
 import { formatDelta, formatValue, type Formatted } from './format.ts';
 import { buildHiringPlan, type HiringClass } from './hiring.ts';
+import { contribution, eventImpact, eventsInRow, EVENT_TYPE_LABEL, withoutEvent } from './events.ts';
+import { EventsView, type EventDraft } from './components/EventsView.tsx';
 import {
   ALL_FILTERS,
   buildRows,
@@ -151,6 +153,8 @@ export function App() {
   /** Edits made while paused, each add or remove counted. */
   const [edits, setEdits] = useState(0);
   const [bulkOpen, setBulkOpen] = useState(false);
+  /** Event the planner opened from the register or an annotation: named first in the inspector. */
+  const [focusEvent, setFocusEvent] = useState<string | null>(null);
   const [showVariance, setShowVariance] = useState<boolean>(() => readSession(VARIANCE_KEY, ['on', 'off'], 'on') === 'on');
 
   useEffect(() => writeStored(SCENARIOS_KEY, JSON.stringify(scenarios)), [scenarios]);
@@ -218,15 +222,17 @@ export function App() {
     setSelected(null);
   }, []);
 
-  /** Bulk entry closes: one override per edited metric, so one recalculation. On the locked plan it forks a scenario. */
-  const applyBulk = useCallback(
-    (drafts: Omit<BulkOverride, 'code'>[]) => {
-      setBulkOpen(false);
+  /** Adds overrides to the open scenario in one change, so one recalculation. On the locked plan it forks a scenario. */
+  const addDrafts = useCallback(
+    (drafts: (Omit<BulkOverride, 'code'> | Omit<EventOverride, 'code'>)[]) => {
       if (drafts.length === 0) return;
       if (paused) setEdits((n) => n + drafts.length);
       const withCodes = (s: Scenario): Scenario => {
         const first = s.overrides.reduce((m, o) => Math.max(m, Number(o.code.split('.OV')[1]) || 0), 0) + 1;
-        return { ...s, overrides: [...s.overrides, ...drafts.map((d, i) => ({ ...d, code: `${s.code}.OV${first + i}` }))] };
+        return {
+          ...s,
+          overrides: [...s.overrides, ...drafts.map((d, i) => ({ ...d, code: `${s.code}.OV${first + i}` }) as Scenario['overrides'][number])],
+        };
       };
       setScenarios((list) => {
         if (activeId && list.some((s) => s.id === activeId)) return list.map((s) => (s.id === activeId ? withCodes(s) : s));
@@ -236,6 +242,15 @@ export function App() {
       });
     },
     [activeId, paused],
+  );
+
+  /** Bulk entry closes: one override per edited metric. */
+  const applyBulk = useCallback(
+    (drafts: Omit<BulkOverride, 'code'>[]) => {
+      setBulkOpen(false);
+      addDrafts(drafts);
+    },
+    [addDrafts],
   );
 
   const updateActive = useCallback(
@@ -328,17 +343,74 @@ export function App() {
 
   // Computation -------------------------------------------------------------------
 
+  /** The inputs the engine calculates: the open scenario's, or the locked plan's. */
+  const calcInput = useMemo(() => (toCalculate ? applyScenario(dataset.plan, toCalculate) : dataset.plan), [toCalculate]);
   const scen = useMemo<{ plan: PlanResult; ms: number } | null>(() => {
     if (!toCalculate) return null;
     const start = performance.now();
-    const plan = engine.computePlan(applyScenario(dataset.plan, toCalculate));
+    const plan = engine.computePlan(calcInput);
     return { plan, ms: performance.now() - start };
-  }, [toCalculate]);
+  }, [toCalculate, calcInput]);
+  const events = useMemo(() => calcInput.events ?? [], [calcInput]);
+  const shownPlan = scen?.plan ?? basePlan;
+
+  // The plan with one event switched off, worked out when first asked for and kept until the inputs change.
+  const withoutCache = useMemo(() => new Map<string, PlanResult>(), [calcInput]);
+  const planWithout = useCallback(
+    (code: string) => {
+      let p = withoutCache.get(code);
+      if (!p) {
+        p = engine.computePlan(withoutEvent(calcInput, code));
+        withoutCache.set(code, p);
+      }
+      return p;
+    },
+    [withoutCache, calcInput],
+  );
+
+  /**
+   * Shows an event where it acts: the Periods grid, a week the event is in, and
+   * the inspector naming it. From the register, the week it adds most to total
+   * Required FTE, on that metric's grand total; from an annotation, the
+   * selected row and metric, at the focus week if it is one of the event's.
+   */
+  const showEvent = useCallback(
+    (code: string, fromRegister: boolean) => {
+      const e = events.find((x) => x.code === code);
+      if (!e) return;
+      setView('plans');
+      writeSession(MODE_KEY, 'periods');
+      setGridMode('periods');
+      setFocusEvent(code);
+      setInspectorOpen(true);
+      if (fromRegister) {
+        setWeek(eventImpact(shownPlan, planWithout(code), e).peakWeek);
+        setPeriodMetric('required');
+        setSelected({ rowId: 'total', key: 'required' });
+        return;
+      }
+      setWeek((w) => (w >= e.fromWeek && w <= e.toWeek ? w : e.fromWeek));
+      setSelected((sel) => ({
+        rowId: sel && !sel.side && !sel.rowId.startsWith(VARIANCE_PREFIX) ? sel.rowId : 'total',
+        key: periodMetric,
+      }));
+    },
+    [events, shownPlan, planWithout, periodMetric],
+  );
+
+  /** Switches a plan event off in the scenario, or back on by dropping the override that switched it off. */
+  const switchEvent = useCallback(
+    (code: string, on: boolean) => {
+      if (!on) return addDrafts([{ kind: 'event', scope: { type: 'all' }, remove: code }]);
+      const o = active?.overrides.find((x) => x.kind === 'event' && x.remove === code);
+      if (o) removeOverride(o.code);
+    },
+    [addDrafts, active, removeOverride],
+  );
   useEffect(() => {
     if (scen) setRuns((n) => n + 1);
   }, [scen]);
 
-  const shownPlan = scen?.plan ?? basePlan;
   const opts = useMemo(() => ({ week, filters, grouping }), [week, filters, grouping]);
   const rows = useMemo(() => buildRows(shownPlan, opts), [shownPlan, opts]);
   const periodModel = useMemo(
@@ -414,7 +486,7 @@ export function App() {
     };
   }, [view, hiringSel, hiringPlan, shownPlan]);
 
-  const target = useMemo<InspectorTarget | null>(() => {
+  const baseTarget = useMemo<InspectorTarget | null>(() => {
     if (view === 'hiring') return hiringTarget;
     if (!selected) return null;
     if (view === 'plans' && periodModel) {
@@ -440,6 +512,33 @@ export function App() {
       isInput: false,
     };
   }, [selected, view, compare, active, rows, hiringTarget, periodModel, week, weekLabel]);
+
+  const target = useMemo<InspectorTarget | null>(() => {
+    const t = baseTarget;
+    if (!t || view !== 'plans' || t.side === 'Variance' || t.side === 'Actual' || t.key === 'site' || t.key === 'classStart') return t;
+    // Name every registered event in effect for this row and week, and what it adds to this number.
+    const key = t.key as NumericKey;
+    const spec = columnSpec(key);
+    const fmt = (v: number) => formatValue(v, spec.format === 'int' ? 'int' : 'one').text;
+    const delta = (v: number) => formatDelta(v, spec.format ?? 'one', false).text;
+    const named = eventsInRow(shownPlan, events, t.row, t.members, week, filters).sort((a, b) =>
+      a.code === focusEvent ? -1 : b.code === focusEvent ? 1 : a.code.localeCompare(b.code),
+    );
+    if (named.length === 0) return t;
+    const notes = named.map((e) => {
+      const c = contribution(shownPlan, planWithout(e.code), t.row.id, key, opts);
+      const effect = c
+        ? ` Contributes ${delta(c.with - c.without)} to this ${spec.header} (${fmt(c.without)} without it).`
+        : '';
+      return {
+        tag: 'EVENT',
+        tone: 'info' as const,
+        text: `${e.code} ${e.name} · ${EVENT_TYPE_LABEL[e.type]} · ${describeEventScope(e.scope, siteName)} · W${String(e.fromWeek).padStart(2, '0')}–W${String(e.toWeek).padStart(2, '0')} · ${describeEffect(e)}.${effect}`,
+      };
+    });
+    return { ...t, id: `${t.id}:ev`, extraNotes: [...notes, ...(t.extraNotes ?? [])] };
+  }, [baseTarget, view, events, shownPlan, week, filters, focusEvent, planWithout, opts]);
+
 
   const exportView = useCallback(async () => {
     const wk = basePlan.weeks[week - 1];
@@ -467,6 +566,7 @@ export function App() {
               scenario: active,
               summary,
               assumptions: dataset.assumptions,
+              events,
               siteName,
             }),
           fileName([PLAN_TITLE, scenarioPart, 'compare', wk?.label ?? '']),
@@ -483,7 +583,7 @@ export function App() {
               periodMetric,
               { ...ctx, context: ctx.context.replace(/^Week [^·]*· /, `${metricName} by week · `) },
               `${metricName.replace('/', '-')} by week`,
-              { hiring: hp, assumptions: dataset.assumptions, scenario: active, siteName },
+              { hiring: hp, assumptions: dataset.assumptions, scenario: active, siteName, events },
             ),
           fileName([PLAN_TITLE, scenarioPart, metricName.replace('/', '-'), 'by-week']),
         );
@@ -494,6 +594,7 @@ export function App() {
             planWorkbook(lib, rows, hidden, ctx, `Plan ${wk?.label ?? ''}`, {
               hiring: hp,
               assumptions: dataset.assumptions,
+              events,
               scenario: active,
               siteName,
             }),
@@ -503,7 +604,7 @@ export function App() {
     } finally {
       setExporting(false);
     }
-  }, [week, active, grouping, filters, view, hiringPlan, scen, summary, opts, metrics, shownPlan, rows, hidden, periodModel, periodMetric]);
+  }, [week, active, grouping, filters, view, hiringPlan, scen, summary, opts, metrics, shownPlan, rows, hidden, periodModel, periodMetric, events]);
 
   const canExport = view === 'plans' || view === 'hiring' || (view === 'scenarios' && active !== null);
 
@@ -543,7 +644,26 @@ export function App() {
   );
 
   let main: ReactNode;
-  if (view === 'hiring' && hiringPlan) {
+  if (view === 'events') {
+    const scenarioEvents = active?.overrides.filter((o): o is EventOverride => o.kind === 'event') ?? [];
+    main = (
+      <EventsView
+        planEvents={dataset.plan.events ?? []}
+        added={scenarioEvents.filter((o) => o.add).map((o) => ({ ...o.add!, code: o.code }))}
+        off={new Set(scenarioEvents.flatMap((o) => (o.remove ? [o.remove] : [])))}
+        impact={(code) => (events.some((e) => e.code === code) ? eventImpact(shownPlan, planWithout(code), events.find((e) => e.code === code)!) : null)}
+        scenarioName={active?.name ?? null}
+        sites={dataset.plan.sites}
+        outsourcers={dataset.outsourcers}
+        businessUnits={FILTER_DIMENSIONS[0].values}
+        horizon={HORIZON}
+        onShow={(code) => showEvent(code, true)}
+        onSwitch={switchEvent}
+        onAdd={(draft: EventDraft) => addDrafts([{ kind: 'event', scope: { type: 'all' }, add: draft }])}
+        onRemoveAdded={removeOverride}
+      />
+    );
+  } else if (view === 'hiring' && hiringPlan) {
     main = (
       <HiringView
         hp={hiringPlan}
@@ -587,6 +707,8 @@ export function App() {
             showVariance={showVariance}
             planName={PLAN_TITLE}
             scenarioName={active?.name ?? null}
+            events={events}
+            onEvent={(code) => showEvent(code, false)}
           />
         </div>
       </>

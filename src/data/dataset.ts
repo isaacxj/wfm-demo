@@ -4,7 +4,7 @@
  * Deterministic: seasonality is a fixed table and all variation comes from
  * seeded integer streams, so output is identical on every run and engine.
  */
-import type { Channel, DemandCell, PlanConstants, PlanInput, PlanWeek, PlanningUnit, SiteInput, StaffType } from '../engine/index.ts';
+import type { Channel, DemandCell, PlanConstants, PlanEvent, PlanInput, PlanWeek, PlanningUnit, SiteInput, StaffType } from '../engine/index.ts';
 import { DEFAULT_CHAT_EFFICIENCY, WEEKS_PER_MONTH, periodLabel, periodStart, toIsoDate } from '../engine/index.ts';
 import { between, streamFor } from './rng.ts';
 
@@ -89,20 +89,55 @@ const COVERAGE: Readonly<Record<string, Coverage>> = {
 };
 
 /**
- * Weekly demand index for 2027. Annual cycle peaking in January, a summer
- * trough, a marketing spike in weeks 31 to 34 and a year-end lift from week 46.
+ * Weekly demand index for 2027: the forecast before any registered event.
+ * Annual cycle peaking in January, a summer trough and a year-end lift from
+ * week 46. The marketing spike in weeks 31 to 34 is not in the forecast: it
+ * is a registered event, EV01, so the plan can say what causes it.
  */
 export const SEASONALITY: readonly number[] = [
   1.069, 1.070, 1.069, 1.068, 1.065, 1.062, 1.058, 1.052, 1.046, 1.040, 1.033, 1.025, 1.017,
   1.008, 1.000, 0.992, 0.983, 0.975, 0.967, 0.960, 0.954, 0.948, 0.942, 0.938, 0.935, 0.932,
-  0.931, 0.930, 0.931, 0.932, 1.055, 1.138, 1.112, 1.028, 0.954, 0.960, 0.967, 0.975, 0.983,
+  0.931, 0.930, 0.931, 0.932, 0.936, 0.941, 0.945, 0.950, 0.954, 0.960, 0.967, 0.975, 0.983,
   0.992, 1.000, 1.008, 1.017, 1.025, 1.033, 1.065, 1.096, 1.127, 1.158, 1.187, 1.215, 1.243,
 ];
 
 export const MARKETING_SPIKE_WEEKS: readonly number[] = [31, 32, 33, 34];
 
-/** Handle time rises during the spike while customers ask about the new offer. */
-const SPIKE_AHT_LIFT = 0.04;
+/** Known drivers of demand the forecast does not hold. */
+export const EVENTS: readonly PlanEvent[] = [
+  {
+    code: 'EV01',
+    name: 'Summer offer campaign',
+    type: 'campaign',
+    scope: { type: 'all' },
+    fromWeek: 31,
+    toWeek: 34,
+    // Customers call about the offer, and the calls run longer while they ask.
+    volumePct: 0.16,
+    ahtPct: 0.04,
+  },
+  {
+    code: 'EV02',
+    name: 'Compliance disclosure training',
+    type: 'training',
+    scope: { type: 'businessUnit', lob: 'Mobile' },
+    fromWeek: 14,
+    toWeek: 19,
+    // New mandatory disclosures add to every call while agents learn them.
+    ahtPct: 0.03,
+  },
+  {
+    code: 'EV03',
+    name: 'Billing platform migration',
+    type: 'system',
+    scope: { type: 'businessUnit', lob: 'Internet' },
+    fromWeek: 38,
+    toWeek: 40,
+    // First bills from the new platform: more calls, and longer ones.
+    volumePct: 0.08,
+    ahtPct: 0.06,
+  },
+];
 
 const CHANNEL_WEIGHT: Readonly<Record<Channel, number>> = { voice: 0.62, chat: 0.25, deferred: 0.13 };
 /** Chat grows and voice shrinks across the year. */
@@ -260,15 +295,14 @@ export function buildDataset(seed = SEED): Dataset {
           const season = SEASONALITY[w] ?? 1;
           const trend = 1 + CHANNEL_TREND[d.channel] * (w / (HORIZON_WEEKS - 1));
           const volume = Math.round(baseVolume * season * trend * between(noise, 0.975, 1.025));
-          const spike = MARKETING_SPIKE_WEEKS.includes(week.index) ? 1 + SPIKE_AHT_LIFT : 1;
-          const aht = Math.round(d.baseAht * spike * between(noise, 0.985, 1.015));
+          const aht = Math.round(d.baseAht * between(noise, 0.985, 1.015));
           return { volume, aht, source: `FC27.${k.id}.W${String(week.index).padStart(2, '0')}` };
         });
       }
     }
   }
 
-  const plan: PlanInput = { isoYear: ISO_YEAR, weeks, constants: CONSTANTS, sites, units, demand };
+  const plan: PlanInput = { isoYear: ISO_YEAR, weeks, constants: CONSTANTS, sites, units, demand, events: EVENTS };
   return { seed, plan, outsourcers: OUTSOURCERS, units, assumptions: assumptionRegister(sites) };
 }
 
@@ -294,6 +328,11 @@ function assumptionRegister(sites: readonly SiteInput[]): AssumptionRecord[] {
   }
   for (const c of [2, 3, 4]) {
     records.push({ code: `GLB.CEF${c}`, label: `Chat efficiency at concurrency ${c}`, value: DEFAULT_CHAT_EFFICIENCY[c] ?? null, unit: 'ratio', scope: 'Global' });
+  }
+  for (const e of EVENTS) {
+    const scope = `${e.name}, W${String(e.fromWeek).padStart(2, '0')}–W${String(e.toWeek).padStart(2, '0')}`;
+    if (e.volumePct) records.push({ code: `${e.code}.VOL`, label: 'Event effect on volume', value: e.volumePct, unit: 'ratio', scope });
+    if (e.ahtPct) records.push({ code: `${e.code}.AHT`, label: 'Event effect on AHT', value: e.ahtPct, unit: 'ratio', scope });
   }
   for (const s of sites) {
     const scope = `${s.outsourcer} / ${s.name}`;

@@ -33,8 +33,10 @@ export function buildActuals(input: PlanInput, plan: PlanResult, seed = SEED, th
 
   const demand: Record<string, DemandCell[]> = {};
   for (const unit of input.units) {
-    const forecast = input.demand[unit.id];
-    if (!forecast) throw new Error(`No forecast for unit ${unit.id}`);
+    // Actuals scatter around what the plan expected: the forecast moved by any registered events.
+    const periods = plan.sites.find((sp) => sp.site.id === unit.siteId)?.periods;
+    if (!periods) throw new Error(`No plan for unit ${unit.id}`);
+    const forecast = periods.map((p) => p.units.find((u) => u.unit.id === unit.id)!);
     const rand = streamFor(seed, `actual-unit:${unit.id}`);
     const swing = siteSwing.get(unit.siteId)!;
     const drifted = unit.siteId === DRIFT_SITE;
