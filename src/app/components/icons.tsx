@@ -92,6 +92,8 @@ const railPaths: Record<string, string> = {
   imports: 'M6 1.5 V7.5 M3.5 5 L6 7.5 L8.5 5 M1.5 10.5 H10.5',
   audit: 'M6 1.5 A4.5 4.5 0 1 0 6.01 1.5 M6 3.5 V6 L8 7.5',
   events: 'M2.5 10.5 V1.5 H9.5 L8 4 L9.5 6.5 H2.5',
+  budget: 'M1.5 10.5 H10.5 M3 10.5 V6 M6 10.5 V3 M9 10.5 V7.5',
+  report: 'M2.5 1.5 H8 L9.5 3 V10.5 H2.5 Z M4.5 5 H7.5 M4.5 7 H7.5 M4.5 9 H6.5',
 };
 
 export function RailIcon({ name }: { name: keyof typeof railPaths | string }) {

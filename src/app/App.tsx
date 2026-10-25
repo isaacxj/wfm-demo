@@ -21,6 +21,11 @@ import { downloadWorkbook } from '../export/download.ts';
 import { formatDelta, formatValue, type Formatted } from './format.ts';
 import { buildHiringPlan, type HiringClass } from './hiring.ts';
 import { contribution, eventImpact, eventsInRow, EVENT_TYPE_LABEL, withoutEvent } from './events.ts';
+import { applyBudgetEdits, budgetCsv, budgetMonths, buildBudgetRows, parseBudgetCsv, type BudgetEdits } from './budget.ts';
+import { buildReport } from './report.ts';
+import { buildBudget } from '../data/budget.ts';
+import { BudgetView } from './components/BudgetView.tsx';
+import { ReportView } from './components/ReportView.tsx';
 import { EventsView, type EventDraft } from './components/EventsView.tsx';
 import {
   ALL_FILTERS,
@@ -57,6 +62,7 @@ function filtersText(filters: Filters): string {
 }
 
 const INSPECTOR_KEY = 'capacity-planner.inspector-open';
+const BUDGET_KEY = 'capacity-planner.budget-edits';
 const SCENARIOS_KEY = 'capacity-planner.scenarios';
 
 function readStored<T>(key: string, fallback: T, parse: (raw: string) => T): T {
@@ -155,6 +161,13 @@ export function App() {
   const [bulkOpen, setBulkOpen] = useState(false);
   /** Event the planner opened from the register or an annotation: named first in the inspector. */
   const [focusEvent, setFocusEvent] = useState<string | null>(null);
+  const [budgetEdits, setBudgetEdits] = useState<BudgetEdits>(() =>
+    readStored(BUDGET_KEY, {}, (raw) => {
+      const v: unknown = JSON.parse(raw);
+      return v && typeof v === 'object' ? (Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === 'number')) as BudgetEdits) : {};
+    }),
+  );
+  useEffect(() => writeStored(BUDGET_KEY, JSON.stringify(budgetEdits)), [budgetEdits]);
   const [showVariance, setShowVariance] = useState<boolean>(() => readSession(VARIANCE_KEY, ['on', 'off'], 'on') === 'on');
 
   useEffect(() => writeStored(SCENARIOS_KEY, JSON.stringify(scenarios)), [scenarios]);
@@ -606,6 +619,68 @@ export function App() {
     }
   }, [week, active, grouping, filters, view, hiringPlan, scen, summary, opts, metrics, shownPlan, rows, hidden, periodModel, periodMetric, events]);
 
+  // Budget and report ------------------------------------------------------------------
+
+  const needsBudget = view === 'budget' || view === 'report';
+  // Finance budgeted from the forecast before any event was known: the plan without events.
+  const budgetBase = useMemo(() => (needsBudget ? buildBudget(engine.computePlan({ ...dataset.plan, events: [] })) : null), [needsBudget]);
+  const months = useMemo(() => budgetMonths(basePlan.weeks, actuals.throughWeek), []);
+  const budget = useMemo(() => (budgetBase ? applyBudgetEdits(budgetBase, budgetEdits, basePlan.weeks) : null), [budgetBase, budgetEdits]);
+  const budgetRows = useMemo(
+    () => (budget ? buildBudgetRows(shownPlan, actuals, budget, months, grouping === 'none' ? 'none' : 'outsourcer') : null),
+    [budget, shownPlan, months, grouping],
+  );
+  const report = useMemo(() => {
+    if (view !== 'report' || !budgetRows) return null;
+    return buildReport({
+      planName: PLAN_TITLE,
+      base: basePlan,
+      scenario: scen?.plan ?? null,
+      scenarioName: active?.name ?? null,
+      actuals,
+      periods: buildPeriodRows(basePlan, ALL_FILTERS, 'outsourcer', { actuals }),
+      budgetRows,
+      budgetMonths: months,
+      hiring: buildHiringPlan(shownPlan, dataset.plan.constants, dataset.plan.isoYear),
+      events,
+    });
+  }, [view, budgetRows, scen, active, shownPlan, events, months]);
+
+  const editBudget = useCallback((key: string, value: number | null) => {
+    setBudgetEdits((all) => {
+      const next = { ...all };
+      if (value === null) delete next[key];
+      else next[key] = value;
+      return next;
+    });
+  }, []);
+
+  const importBudget = useCallback((text: string) => {
+    const result = parseBudgetCsv(text, dataset.plan.sites, basePlan.weeks);
+    setBudgetEdits((all) => ({ ...all, ...result.edits }));
+    return { rows: result.rows, errors: result.errors };
+  }, []);
+
+  const downloadBudget = useCallback(() => {
+    if (!budget) return;
+    const url = URL.createObjectURL(new Blob([budgetCsv(budget, dataset.plan.sites, months)], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName([PLAN_TITLE, budget.name]).replace(/\.xlsx$/, '.csv');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }, [budget, months]);
+
+  const showCurveTable = useCallback(() => {
+    setView('plans');
+    writeSession(MODE_KEY, 'periods');
+    setGridMode('periods');
+    setPeriodMetric('overUnder');
+    setSelected({ rowId: 'total', key: 'overUnder' });
+  }, []);
+
   const canExport = view === 'plans' || view === 'hiring' || (view === 'scenarios' && active !== null);
 
   const toolbar = (
@@ -644,7 +719,24 @@ export function App() {
   );
 
   let main: ReactNode;
-  if (view === 'events') {
+  if (view === 'budget' && budget && budgetRows) {
+    main = (
+      <BudgetView
+        budget={budget}
+        rows={budgetRows}
+        months={months}
+        edits={budgetEdits}
+        scenarioName={active?.name ?? null}
+        sites={dataset.plan.sites}
+        onEdit={editBudget}
+        onImport={importBudget}
+        onDownload={downloadBudget}
+        onReset={() => setBudgetEdits({})}
+      />
+    );
+  } else if (view === 'report' && report) {
+    main = <ReportView report={report} onTable={showCurveTable} printedOn={longDate.format(new Date())} />;
+  } else if (view === 'events') {
     const scenarioEvents = active?.overrides.filter((o): o is EventOverride => o.kind === 'event') ?? [];
     main = (
       <EventsView

@@ -36,11 +36,11 @@ Statixx Solutions. All data in this repository is invented.
 | v2.4 | Pause recalculation; class constraints | Done |
 | v2.5 | Bulk entry; Staff Type | Done |
 | v2.6 | Driver and event register | Done |
-| v2.7 | Budget variance; report view | Not started |
+| v2.7 | Budget variance; report view | Done |
 
 ## Demo walkthrough
 
-Nine steps: the demo script, plus actuals and events. Everything runs in the browser on an
+Eleven steps: the demo script, plus actuals, events, the budget and the monthly brief. Everything runs in the browser on an
 invented 2027 dataset: 8 sites, 4 outsourcers, 88 planning units, 52 weeks.
 
 ### 1. Open the locked production plan and read the grid
@@ -172,8 +172,31 @@ exported file.
 
 ![Exported comparison workbook](docs/screenshots/08-excel-export.png)
 
-Scenarios are kept in the browser's local storage. **Discard scenario**
-returns to a clean start.
+### 10. Check the plan against the budget
+
+**Budget** in the rail sets the FY27 budget (record BUD27) against the plan and
+the actuals, month by month, per site: budget, Required FTE, Planned FTE, actual
+headcount, and the two variances. The plan runs +232.6 FTE a week over budget
+across the year, most of it in August and September: finance budgeted from the
+forecast before the summer campaign was registered. Actuals so far run +87.8
+over. Click a budget figure to change it, or **Import CSV** (site, month or week,
+FTE); **Download CSV** gives the budget in the same layout.
+
+![Budget against plan and actuals](docs/screenshots/12-budget.png)
+
+### 11. Print the monthly brief
+
+**Report** in the rail is the brief for March 2027 on one screen: headline
+numbers, the Over/Under curve for the year (actuals, then the plan, with the
+events marked), the hiring instruction for the next thirteen weeks, and the top
+variances, led by Mexico City's drift. With a scenario open it compares the
+scenario with the baseline: both curves, and every headline as baseline →
+scenario. **Print** gives one landscape A4 page.
+
+![Monthly brief](docs/screenshots/13-report.png)
+
+Scenarios, budget changes and the inspector state are kept in the browser's
+local storage. **Discard scenario** and **Reset** return to a clean start.
 
 ## Commands
 
@@ -322,6 +345,43 @@ reads "Recalculation paused · N pending changes", counting each edit. **Resume*
 recalculates once with all of them. The status bar's run counter numbers each
 calculation since the page opened, so a resume after four edits shows one
 more run, not four.
+
+## Budget
+
+The FY27 budget funds whole FTE per site per month, the same in every week of
+the month. It is seeded from the forecast as finance would have seen it in
+September 2026: the plan without registered events, each site-month moved a
+little either way. The Budget view compares it, by month and for the year, with
+Required FTE and Planned FTE of the open plan or scenario, and with actual
+headcount over the elapsed weeks only (a month part-way elapsed is marked).
+Planned − budget and actual − budget are positive when over budget and read red.
+Subtotals add the displayed site values.
+
+Budget figures change in place (a month at a time) or by CSV import: one line
+per site and period, the site by id or name, the period as 2027-04, Apr 2027 or
+2027-W14 (one week), comma, tab or semicolon separated; lines that do not read
+are listed and skipped. Changes are kept in the browser; **Reset** drops them.
+
+## Report
+
+The monthly brief for the month of the landing week, on one screen and one
+printed page:
+
+- Headlines: Over/Under in the landing week, weeks under for the rest of the
+  year, average Required FTE and starters over the next thirteen weeks,
+  starters for the year, and Planned − budget for the year
+- The Over/Under curve: grand total by week, actuals to W11 then the plan,
+  events marked above their weeks, hover for the week's figures; **View as
+  table** opens the same numbers in the Periods grid
+- The hiring instruction: classes starting in the next thirteen weeks, one line
+  per start week with starters, classes, the week they are productive and the
+  sites; classes started early by a constraint are marked
+- Top variances: drift against plan first, then the largest gaps against budget
+
+With a scenario open the brief compares it with the locked baseline: two
+curves, the baseline in grey and the scenario in the accent, and each headline
+as baseline → scenario with the change. **Print** lays it out on landscape A4
+without the application chrome.
 
 ## Event register
 

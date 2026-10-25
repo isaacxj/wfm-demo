@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.7 — Budget variance and report view
+
+- A **Budget** view: the FY27 budget per site and month against Required FTE,
+  Planned FTE and actual headcount, with planned − budget and actual − budget.
+  The budget is seeded from the forecast before any registered event; figures
+  change in place or by CSV import, and download as CSV.
+- A **Report** view: the monthly brief on one screen. Headline numbers, the
+  Over/Under curve with actuals and events, the hiring instruction for the
+  next thirteen weeks and the top variances. A scenario is shown against the
+  baseline. Prints on one landscape A4 page.
+
 ## v2.6 — Driver and event register
 
 - Registered events: name, type, scope (all sites, outsourcer, site or
